@@ -136,6 +136,12 @@ actual object WebBrowserDomBridge {
             val ke = toKeyEvent(ev)
             element.dispatchFromBrowser("keyup", ke)
         })
+        peer.addEventListener("load", { _: dynamic ->
+            element.dispatchFromBrowser("load", null)
+        })
+        peer.addEventListener("error", { _: dynamic ->
+            element.dispatchFromBrowser("error", null)
+        })
     }
 
     private fun handleFileInputChange(element: WebDomElement, peer: dynamic) {
@@ -304,14 +310,25 @@ actual object WebBrowserDomBridge {
         peer.accept = accept
     }
 
+    private fun resolveContainerTarget(parent: WebDomElement): dynamic {
+        val parentPeer: dynamic = parent.browserPeer ?: return null
+        if (parent.tagName.equals("iframe", ignoreCase = true)) {
+            val iframeDoc: dynamic = parentPeer.contentDocument ?: parentPeer.contentWindow?.document
+            val body: dynamic = iframeDoc?.body
+            if (body != null) return body
+            return null
+        }
+        return parentPeer
+    }
+
     actual fun appendChild(parent: WebDomElement, child: WebDomElement) {
-        val parentPeer: dynamic = parent.browserPeer ?: return
+        val parentPeer: dynamic = resolveContainerTarget(parent) ?: return
         val childPeer: dynamic = child.browserPeer ?: return
         parentPeer.appendChild(childPeer)
     }
 
     actual fun insertChildAt(parent: WebDomElement, index: Int, child: WebDomElement) {
-        val parentPeer: dynamic = parent.browserPeer ?: return
+        val parentPeer: dynamic = resolveContainerTarget(parent) ?: return
         val childPeer: dynamic = child.browserPeer ?: return
         val children: dynamic = parentPeer.children
         val len = (children?.length as? Number)?.toInt() ?: 0
@@ -328,7 +345,7 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun removeChild(parent: WebDomElement, child: WebDomElement) {
-        val parentPeer: dynamic = parent.browserPeer ?: return
+        val parentPeer: dynamic = resolveContainerTarget(parent) ?: return
         val childPeer: dynamic = child.browserPeer ?: return
         if (childPeer.parentNode === parentPeer) {
             parentPeer.removeChild(childPeer)
@@ -336,7 +353,7 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun clearChildren(parent: WebDomElement) {
-        val parentPeer: dynamic = parent.browserPeer ?: return
+        val parentPeer: dynamic = resolveContainerTarget(parent) ?: return
         while (parentPeer.firstChild != null) {
             parentPeer.removeChild(parentPeer.firstChild)
         }
@@ -356,6 +373,16 @@ actual object WebBrowserDomBridge {
         if (ch > 0) return ch
         val oh = (peer.offsetHeight as? Number)?.toInt() ?: 0
         return if (oh > 0) oh else fallback
+    }
+
+    actual fun getOffsetLeft(element: WebDomElement, fallback: Int): Int {
+        val peer: dynamic = element.browserPeer ?: return fallback
+        return (peer.offsetLeft as? Number)?.toInt() ?: fallback
+    }
+
+    actual fun getOffsetTop(element: WebDomElement, fallback: Int): Int {
+        val peer: dynamic = element.browserPeer ?: return fallback
+        return (peer.offsetTop as? Number)?.toInt() ?: fallback
     }
 
     actual fun getViewportWidth(fallback: Int): Int {

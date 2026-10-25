@@ -33,6 +33,8 @@ expect object WebBrowserDomBridge {
 
     fun getClientWidth(element: WebDomElement, fallback: Int): Int
     fun getClientHeight(element: WebDomElement, fallback: Int): Int
+    fun getOffsetLeft(element: WebDomElement, fallback: Int): Int
+    fun getOffsetTop(element: WebDomElement, fallback: Int): Int
     fun getViewportWidth(fallback: Int): Int
     fun getViewportHeight(fallback: Int): Int
 

@@ -6,9 +6,16 @@ import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
 /**
  * Web implementation of [ImageNativeImpl] rendered as `<img>`.
  */
-class WebImageImpl : WebBaseNativeImpl("img", "img-fluid"), ImageNativeImpl<WebDomElement> {
+class WebImageImpl : WebBaseNativeImpl("img"), ImageNativeImpl<WebDomElement> {
     private var sourceUrl: String? = null
     private var objectFit: ObjectFit = ObjectFit.CONTAIN
+    private var onLoadCallback: (() -> Unit)? = null
+    private var onErrorCallback: (() -> Unit)? = null
+
+    init {
+        nativeWidget.addEventListener("load") { onLoadCallback?.invoke() }
+        nativeWidget.addEventListener("error") { onErrorCallback?.invoke() }
+    }
 
     override fun setSourceUrl(url: String?) {
         sourceUrl = url
@@ -35,4 +42,12 @@ class WebImageImpl : WebBaseNativeImpl("img", "img-fluid"), ImageNativeImpl<WebD
     }
 
     override fun getObjectFit(): ObjectFit = objectFit
+
+    override fun setOnLoad(listener: (() -> Unit)?) {
+        onLoadCallback = listener
+    }
+
+    override fun setOnError(listener: (() -> Unit)?) {
+        onErrorCallback = listener
+    }
 }

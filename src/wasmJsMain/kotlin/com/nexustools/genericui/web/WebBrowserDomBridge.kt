@@ -32,7 +32,7 @@ private external fun wasmCreateElement(tagName: String): JsAny
     "}")
 private external fun wasmBindRoot(oldPeer: JsAny?, rootId: String, theme: String): JsAny
 
-@JsFun("(peer, onClick, onDblClick, onInput, onChange, onCancel, onWheel) => { " +
+@JsFun("(peer, onClick, onDblClick, onInput, onChange, onCancel, onWheel, onLoad, onError) => { " +
     "peer.addEventListener('click', () => { onClick(); }); " +
     "peer.addEventListener('dblclick', () => { onDblClick(); }); " +
     "peer.addEventListener('input', () => { " +
@@ -49,6 +49,8 @@ private external fun wasmBindRoot(oldPeer: JsAny?, rootId: String, theme: String
     "peer.addEventListener('wheel', (ev) => { " +
     "  onWheel(ev.deltaX || 0, ev.deltaY || 0, ev.clientX || 0, ev.clientY || 0); " +
     "}); " +
+    "peer.addEventListener('load', () => { onLoad(); }); " +
+    "peer.addEventListener('error', () => { onError(); }); " +
     "}")
 private external fun wasmAttachBasicListeners(
     peer: JsAny,
@@ -57,7 +59,9 @@ private external fun wasmAttachBasicListeners(
     onInput: (String, Boolean) -> Unit,
     onChange: (String, Boolean) -> Unit,
     onCancel: () -> Unit,
-    onWheel: (Float, Float, Float, Float) -> Unit
+    onWheel: (Float, Float, Float, Float) -> Unit,
+    onLoad: () -> Unit,
+    onError: () -> Unit
 )
 
 @JsFun("(peer, onContextMenu, onPointerDown, onPointerMove, onPointerUp, onKeyDown, onKeyUp) => { " +
@@ -174,21 +178,32 @@ private external fun wasmSetDirectory(peer: JsAny, directory: Boolean)
 @JsFun("(peer, accept) => { peer.accept = accept; }")
 private external fun wasmSetAccept(peer: JsAny, accept: String)
 
-@JsFun("(parent, child) => { parent.appendChild(child); }")
+@JsFun("(parent, child) => { " +
+    "const target = (parent.tagName && parent.tagName.toLowerCase() === 'iframe') ? ((parent.contentDocument || (parent.contentWindow && parent.contentWindow.document)) && (parent.contentDocument || parent.contentWindow.document).body) : parent; " +
+    "if (target) target.appendChild(child); " +
+    "}")
 private external fun wasmAppendChild(parent: JsAny, child: JsAny)
 
 @JsFun("(parent, index, child) => { " +
-    "const children = parent.children; " +
+    "const target = (parent.tagName && parent.tagName.toLowerCase() === 'iframe') ? ((parent.contentDocument || (parent.contentWindow && parent.contentWindow.document)) && (parent.contentDocument || parent.contentWindow.document).body) : parent; " +
+    "if (!target) return; " +
+    "const children = target.children; " +
     "const len = children ? children.length : 0; " +
-    "if (index < 0 || index >= len) parent.appendChild(child); " +
-    "else parent.insertBefore(child, children[index]); " +
+    "if (index < 0 || index >= len) target.appendChild(child); " +
+    "else target.insertBefore(child, children[index]); " +
     "}")
 private external fun wasmInsertChildAt(parent: JsAny, index: Int, child: JsAny)
 
-@JsFun("(parent, child) => { if (child.parentNode === parent) parent.removeChild(child); }")
+@JsFun("(parent, child) => { " +
+    "const target = (parent.tagName && parent.tagName.toLowerCase() === 'iframe') ? ((parent.contentDocument || (parent.contentWindow && parent.contentWindow.document)) && (parent.contentDocument || parent.contentWindow.document).body) : parent; " +
+    "if (target && child.parentNode === target) target.removeChild(child); " +
+    "}")
 private external fun wasmRemoveChild(parent: JsAny, child: JsAny)
 
-@JsFun("(parent) => { while (parent.firstChild) parent.removeChild(parent.firstChild); }")
+@JsFun("(parent) => { " +
+    "const target = (parent.tagName && parent.tagName.toLowerCase() === 'iframe') ? ((parent.contentDocument || (parent.contentWindow && parent.contentWindow.document)) && (parent.contentDocument || parent.contentWindow.document).body) : parent; " +
+    "if (target) { while (target.firstChild) target.removeChild(target.firstChild); } " +
+    "}")
 private external fun wasmClearChildren(parent: JsAny)
 
 @JsFun("(peer, fallback) => { const w = peer.clientWidth || peer.offsetWidth || 0; return w > 0 ? w : fallback; }")
@@ -196,6 +211,12 @@ private external fun wasmGetClientWidth(peer: JsAny, fallback: Int): Int
 
 @JsFun("(peer, fallback) => { const h = peer.clientHeight || peer.offsetHeight || 0; return h > 0 ? h : fallback; }")
 private external fun wasmGetClientHeight(peer: JsAny, fallback: Int): Int
+
+@JsFun("(peer, fallback) => { return typeof peer.offsetLeft === 'number' ? (peer.offsetLeft | 0) : fallback; }")
+private external fun wasmGetOffsetLeft(peer: JsAny, fallback: Int): Int
+
+@JsFun("(peer, fallback) => { return typeof peer.offsetTop === 'number' ? (peer.offsetTop | 0) : fallback; }")
+private external fun wasmGetOffsetTop(peer: JsAny, fallback: Int): Int
 
 @JsFun("(fallback) => { const w = window.innerWidth || 0; return w > 0 ? w : fallback; }")
 private external fun wasmGetViewportWidth(fallback: Int): Int
@@ -279,6 +300,12 @@ actual object WebBrowserDomBridge {
             },
             onWheel = { dx, dy, cx, cy ->
                 element.dispatchFromBrowser("wheel", WheelEvent(dx, dy, cx, cy))
+            },
+            onLoad = {
+                element.dispatchFromBrowser("load", null)
+            },
+            onError = {
+                element.dispatchFromBrowser("error", null)
             }
         )
         wasmAttachInputListeners(
@@ -431,6 +458,16 @@ actual object WebBrowserDomBridge {
     actual fun getClientHeight(element: WebDomElement, fallback: Int): Int {
         val peer = element.browserPeer as? JsAny ?: return fallback
         return wasmGetClientHeight(peer, fallback)
+    }
+
+    actual fun getOffsetLeft(element: WebDomElement, fallback: Int): Int {
+        val peer = element.browserPeer as? JsAny ?: return fallback
+        return wasmGetOffsetLeft(peer, fallback)
+    }
+
+    actual fun getOffsetTop(element: WebDomElement, fallback: Int): Int {
+        val peer = element.browserPeer as? JsAny ?: return fallback
+        return wasmGetOffsetTop(peer, fallback)
     }
 
     actual fun getViewportWidth(fallback: Int): Int =

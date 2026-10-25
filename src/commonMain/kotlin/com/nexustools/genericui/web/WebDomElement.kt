@@ -11,6 +11,13 @@ package com.nexustools.genericui.web
 class WebDomElement(val tagName: String) {
     internal var browserPeer: Any? = null
 
+    /**
+     * Returns the underlying browser DOM `HTMLElement` / `HTMLCanvasElement` peer when running
+     * in a browser environment, or `null` in headless unit tests.
+     */
+    val nativeBrowserPeer: Any?
+        get() = browserPeer
+
     var id: String = ""
         set(value) {
             field = value
@@ -180,6 +187,8 @@ class WebDomElement(val tagName: String) {
 
     private var explicitClientWidth: Int = 800
     private var explicitClientHeight: Int = 600
+    private var explicitOffsetLeft: Int = 0
+    private var explicitOffsetTop: Int = 0
 
     var clientWidth: Int
         get() = WebBrowserDomBridge.getClientWidth(this, explicitClientWidth)
@@ -191,6 +200,18 @@ class WebDomElement(val tagName: String) {
         get() = WebBrowserDomBridge.getClientHeight(this, explicitClientHeight)
         set(value) {
             explicitClientHeight = value
+        }
+
+    var offsetLeft: Int
+        get() = WebBrowserDomBridge.getOffsetLeft(this, explicitOffsetLeft)
+        set(value) {
+            explicitOffsetLeft = value
+        }
+
+    var offsetTop: Int
+        get() = WebBrowserDomBridge.getOffsetTop(this, explicitOffsetTop)
+        set(value) {
+            explicitOffsetTop = value
         }
 
     private val listeners = linkedMapOf<String, MutableList<(Any?) -> Unit>>()

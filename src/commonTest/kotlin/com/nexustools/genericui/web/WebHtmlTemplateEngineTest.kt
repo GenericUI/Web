@@ -50,28 +50,28 @@ class WebHtmlTemplateEngineTest {
             manifestConfig = WebAppManifestConfig(
                 enabled = true,
                 allowInstallAsWebApp = true,
-                shortName = "EpisodeCaster",
-                description = "Stream and cast episodes everywhere",
+                shortName = "GenericWebApp",
+                description = "Cross-platform web application showcase",
                 display = "standalone",
                 orientation = "any",
                 backgroundColor = "#0B0E14",
-                categories = listOf("entertainment", "multimedia")
+                categories = listOf("productivity", "utilities")
             )
         )
 
         val manifestJson = engine.renderManifestJson(
-            title = "Episode Caster",
+            title = "GenericUI Web App",
             webIconUrl = "icon.svg"
         )
-        assertTrue(manifestJson.contains("\"name\": \"Episode Caster\""))
-        assertTrue(manifestJson.contains("\"short_name\": \"EpisodeCaster\""))
+        assertTrue(manifestJson.contains("\"name\": \"GenericUI Web App\""))
+        assertTrue(manifestJson.contains("\"short_name\": \"GenericWebApp\""))
         assertTrue(manifestJson.contains("\"display\": \"standalone\""))
         assertTrue(manifestJson.contains("\"theme_color\": \"#2A80FF\""))
         assertTrue(manifestJson.contains("\"background_color\": \"#0B0E14\""))
         assertTrue(manifestJson.contains("\"sizes\": \"192x192 512x512\""))
 
         val html = engine.renderIndexHtml(
-            title = "Episode Caster",
+            title = "GenericUI Web App",
             webIconUrl = "icon.svg"
         )
         assertTrue(html.contains("<link id=\"genericui-web-manifest\" rel=\"manifest\" href=\"manifest.webmanifest?"))
@@ -96,9 +96,9 @@ class WebHtmlTemplateEngineTest {
 
     @Test
     fun testWebBaseNativeImplSpaceSeparatedPrefixAndComputedStyleTypedPrecedence() {
-        val impl = WebBaseNativeImpl("div", "menu chargen")
+        val impl = WebBaseNativeImpl("div", "menu modal-panel")
         assertTrue(impl.hasClass("menu"))
-        assertTrue(impl.hasClass("chargen"))
+        assertTrue(impl.hasClass("modal-panel"))
 
         impl.addClass("border")
         impl.setTextAlignment(com.nexustools.genericui.enums.bootstrap.TextAlignment.CENTER)

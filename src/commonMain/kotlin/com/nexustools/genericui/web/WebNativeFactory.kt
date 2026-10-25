@@ -10,6 +10,7 @@ import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
 import com.nexustools.genericui.nativeimpl.dialog.FileBrowserDialogNativeImpl
 import com.nexustools.genericui.nativeimpl.dialog.StandardDialogsNativeImpl
 import com.nexustools.genericui.nativeimpl.dock.*
+import com.nexustools.genericui.nativeimpl.document.BookContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
 import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
@@ -67,9 +68,10 @@ class WebNativeFactory(
     override fun createDockWindow(): DockWindowNativeImpl<*> = WebDockWindowImpl()
     override fun createToolPalette(): ToolPaletteNativeImpl<*> = WebToolPaletteImpl()
 
-    // Layout
+    // Layout & Printable Book Documents
     override fun createContainer(classPrefix: String): ContainerNativeImpl<*> = WebContainerImpl(classPrefix)
     override fun createContainer(classPrefix: String, tagName: String): ContainerNativeImpl<*> = WebContainerImpl(classPrefix, tagName)
+    override fun createBookContainer(): BookContainerNativeImpl<*> = WebBookContainerImpl()
     override fun createScrollView(): ScrollViewNativeImpl<*> = WebScrollViewImpl()
     override fun createDivider(): DividerNativeImpl<*> = WebDividerImpl()
 

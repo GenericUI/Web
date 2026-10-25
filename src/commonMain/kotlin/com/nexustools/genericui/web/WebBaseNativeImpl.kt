@@ -231,6 +231,14 @@ open class WebBaseNativeImpl(
 
     override fun getTooltipText(): String? = tooltipValue
 
+    override fun setAttribute(name: String, value: String?) {
+        if (value != null) {
+            nativeWidget.setAttribute(name, value)
+        } else {
+            nativeWidget.removeAttribute(name)
+        }
+    }
+
     override fun setPreferredSize(size: Size?) {
         preferredSizeValue = size
         if (size != null) {
@@ -253,7 +261,12 @@ open class WebBaseNativeImpl(
     }
 
     override fun getBounds(): Rect =
-        Rect(0, 0, preferredSizeValue?.width ?: nativeWidget.clientWidth, preferredSizeValue?.height ?: nativeWidget.clientHeight)
+        Rect(
+            nativeWidget.offsetLeft,
+            nativeWidget.offsetTop,
+            preferredSizeValue?.width ?: nativeWidget.clientWidth,
+            preferredSizeValue?.height ?: nativeWidget.clientHeight
+        )
 
     override fun setPadding(padding: EdgeInsets) {
         if (padding == EdgeInsets.ZERO) {
