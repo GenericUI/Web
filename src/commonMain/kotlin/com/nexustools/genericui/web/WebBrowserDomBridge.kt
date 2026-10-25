@@ -5,7 +5,7 @@ package com.nexustools.genericui.web
  * (`window.document`) when running in a browser environment, while remaining a safe no-op in
  * headless Node/Wasm unit test environments.
  */
-internal expect object WebBrowserDomBridge {
+expect object WebBrowserDomBridge {
     val isBrowserEnvironment: Boolean
 
     fun createPeer(element: WebDomElement)
@@ -45,4 +45,13 @@ internal expect object WebBrowserDomBridge {
     fun showAlert(message: String)
     fun showConfirm(message: String): Boolean
     fun showPrompt(message: String, defaultValue: String): String?
+
+    fun sendHttpRequest(
+        url: String,
+        method: String,
+        contentType: String?,
+        body: String?,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    )
 }

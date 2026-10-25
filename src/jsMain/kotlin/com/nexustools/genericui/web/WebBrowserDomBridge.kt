@@ -5,7 +5,7 @@ import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
 
-internal actual object WebBrowserDomBridge {
+actual object WebBrowserDomBridge {
 
     actual val isBrowserEnvironment: Boolean
         get() = js("typeof document !== 'undefined' && typeof window !== 'undefined'") as Boolean
@@ -49,6 +49,10 @@ internal actual object WebBrowserDomBridge {
                 if (peer.parentNode == null) {
                     doc.body.appendChild(peer)
                 }
+            }
+            val win: dynamic = js("window")
+            if (win.GenericUiSplash != null && js("typeof win.GenericUiSplash.finish === 'function'") as Boolean) {
+                win.GenericUiSplash.finish()
             }
         }
 
@@ -438,5 +442,36 @@ internal actual object WebBrowserDomBridge {
             return win.prompt(message, defaultValue) as? String
         }
         return defaultValue
+    }
+
+    actual fun sendHttpRequest(
+        url: String,
+        method: String,
+        contentType: String?,
+        body: String?,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (!isBrowserEnvironment || !(js("typeof XMLHttpRequest !== 'undefined'") as Boolean)) {
+            onError("XMLHttpRequest is not available")
+            return
+        }
+        val request: dynamic = js("new XMLHttpRequest()")
+        request.addEventListener("load", {
+            val responseText = (request.responseText as? String) ?: ""
+            onSuccess(responseText)
+        })
+        request.addEventListener("error", {
+            onError("Network request failed for $url")
+        })
+        request.open(method, url)
+        if (contentType != null) {
+            request.setRequestHeader("Content-Type", contentType)
+        }
+        if (body != null) {
+            request.send(body)
+        } else {
+            request.send()
+        }
     }
 }

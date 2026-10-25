@@ -197,13 +197,22 @@ open class WebBaseNativeImpl(
     override fun setEnabled(enabled: Boolean) {
         enabledFlag = enabled
         nativeWidget.disabled = !enabled
+        if (enabled) {
+            nativeWidget.classList.remove("disabled")
+        } else {
+            nativeWidget.classList.add("disabled")
+        }
     }
 
     override fun isEnabled(): Boolean = enabledFlag
 
     override fun setOpacity(opacity: Float) {
         opacityValue = opacity.coerceIn(0f, 1f)
-        nativeWidget.style["opacity"] = opacityValue.toString()
+        if (opacityValue >= 1.0f) {
+            nativeWidget.style.remove("opacity")
+        } else {
+            nativeWidget.style["opacity"] = opacityValue.toString()
+        }
     }
 
     override fun getOpacity(): Float = opacityValue
@@ -222,13 +231,21 @@ open class WebBaseNativeImpl(
     override fun setPreferredSize(size: Size?) {
         preferredSizeValue = size
         if (size != null) {
-            nativeWidget.style["width"] = "${size.width}px"
-            nativeWidget.style["height"] = "${size.height}px"
-            nativeWidget.clientWidth = size.width
-            nativeWidget.clientHeight = size.height
+            if (size.width > 0) {
+                nativeWidget.style["width"] = "${size.width}px"
+                nativeWidget.clientWidth = size.width
+            } else if ("width" !in appliedComputedStyleKeys) {
+                nativeWidget.style.remove("width")
+            }
+            if (size.height > 0) {
+                nativeWidget.style["height"] = "${size.height}px"
+                nativeWidget.clientHeight = size.height
+            } else if ("height" !in appliedComputedStyleKeys) {
+                nativeWidget.style.remove("height")
+            }
         } else {
-            nativeWidget.style.remove("width")
-            nativeWidget.style.remove("height")
+            if ("width" !in appliedComputedStyleKeys) nativeWidget.style.remove("width")
+            if ("height" !in appliedComputedStyleKeys) nativeWidget.style.remove("height")
         }
     }
 
@@ -236,11 +253,19 @@ open class WebBaseNativeImpl(
         Rect(0, 0, preferredSizeValue?.width ?: nativeWidget.clientWidth, preferredSizeValue?.height ?: nativeWidget.clientHeight)
 
     override fun setPadding(padding: EdgeInsets) {
-        nativeWidget.style["padding"] = "${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px"
+        if (padding == EdgeInsets.ZERO) {
+            nativeWidget.style.remove("padding")
+        } else {
+            nativeWidget.style["padding"] = "${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px"
+        }
     }
 
     override fun setMargin(margin: EdgeInsets) {
-        nativeWidget.style["margin"] = "${margin.top}px ${margin.right}px ${margin.bottom}px ${margin.left}px"
+        if (margin == EdgeInsets.ZERO) {
+            nativeWidget.style.remove("margin")
+        } else {
+            nativeWidget.style["margin"] = "${margin.top}px ${margin.right}px ${margin.bottom}px ${margin.left}px"
+        }
     }
 
     override fun applyComputedStyle(style: ComputedStyle) {
@@ -267,12 +292,14 @@ open class WebBaseNativeImpl(
         style.left?.let { setComputedStyleProp("left", it) }
         style.top?.let { setComputedStyleProp("top", it) }
         style.cursor?.let { setComputedStyleProp("cursor", it) }
-        style.pointerEventsEnabled.let { setComputedStyleProp("pointer-events", if (it) "auto" else "none") }
+        if (!style.pointerEventsEnabled) {
+            setComputedStyleProp("pointer-events", "none")
+        }
         style.rawDeclarations.forEach { (k, v) -> setComputedStyleProp(k, v) }
 
         preferredSizeValue?.let { size ->
-            nativeWidget.style["width"] = "${size.width}px"
-            nativeWidget.style["height"] = "${size.height}px"
+            if (size.width > 0) nativeWidget.style["width"] = "${size.width}px"
+            if (size.height > 0) nativeWidget.style["height"] = "${size.height}px"
         }
         if (!visibleFlag) {
             nativeWidget.style["display"] = "none"

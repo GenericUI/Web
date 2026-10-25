@@ -39,17 +39,28 @@ class WebApplicationImpl(
     }
 
     /**
-     * Renders the complete HTML5 page for this application using [templateEngine] and its
-     * configured Bootstrap CDN CSS & JS links.
+     * Renders the complete HTML5 page for this application using [templateEngine], its
+     * configured Bootstrap CDN CSS & JS links, splash icon/progress bar, favicon, and
+     * Wasm-first / JS-IR-fallback loader script.
      */
     fun renderIndexHtml(
         title: String = "GenericUI Web Application",
-        appBundleScriptUrl: String? = null
+        appBundleScriptUrl: String? = null,
+        wasmJsUrl: String? = null,
+        wasmBinaryUrl: String? = null,
+        jsIrUrl: String? = null,
+        webIconUrl: String? = null,
+        splash: WebSplashConfig = templateEngine.splashConfig
     ): String = templateEngine.renderIndexHtml(
         title = title,
         themeMode = themeMode,
         rootContainerId = nativeApplication.id.ifEmpty { "genericui-app" },
-        appBundleScriptUrl = appBundleScriptUrl
+        appBundleScriptUrl = appBundleScriptUrl,
+        wasmJsUrl = wasmJsUrl,
+        wasmBinaryUrl = wasmBinaryUrl,
+        jsIrUrl = jsIrUrl,
+        webIconUrl = webIconUrl,
+        splash = splash
     )
 
     override fun setThemeMode(mode: ThemeMode) {
