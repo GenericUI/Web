@@ -571,8 +571,27 @@
         });
     }
 
+    function ensureRootContainer() {
+        var doc = global.document;
+        if (!doc) {
+            return null;
+        }
+        var root = (typeof doc.getElementsByTagName === "function" && doc.getElementsByTagName("genericui:root")[0]) ||
+            (typeof doc.querySelector === "function" ? doc.querySelector("genericui\\:root") : null);
+        if (!root && doc.body && typeof doc.createElement === "function") {
+            root = doc.createElement("genericui:root");
+            doc.body.appendChild(root);
+        }
+        if (root && typeof root.removeAttribute === "function") {
+            root.removeAttribute("id");
+            root.removeAttribute("data-bs-theme");
+        }
+        return root;
+    }
+
     function startLoader() {
         installGlobalErrorListeners();
+        ensureRootContainer();
         var config = resolveLoaderConfig();
 
         if (!config.wasmJsUrl && !config.jsIrUrl) {
@@ -595,6 +614,7 @@
 
     global.GenericUiSplash = {
         detectWasmSupport: detectWasmSupport,
+        ensureRootContainer: ensureRootContainer,
         updateProgress: updateProgress,
         finish: fadeOutSplash,
         showError: showError,

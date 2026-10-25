@@ -4,23 +4,22 @@ import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
 
 /**
- * Web implementation of [ApplicationNativeImpl] managing the root `#genericui-app` DOM body container,
- * Bootstrap `data-bs-theme` attribute, and [WebHtmlTemplateEngine] CDN resource injection.
+ * Web implementation of [ApplicationNativeImpl] managing the root `<genericui:root>` DOM container,
+ * document `data-bs-theme` attribute, top-level `<genericui:menubar>`, and [WebHtmlTemplateEngine] CDN resource injection.
  */
 class WebApplicationImpl(
     val templateEngine: WebHtmlTemplateEngine = WebHtmlTemplateEngine()
 ) : ApplicationNativeImpl<WebDomElement> {
-    override val nativeApplication: WebDomElement = WebDomElement("div").apply {
-        id = "genericui-app"
-        setAttribute("data-bs-theme", "dark")
-    }
+    override val nativeApplication: WebDomElement = WebDomElement("genericui:root")
 
+    internal var topMenuBarElement: WebDomElement? = null
     private var themeMode: ThemeMode = ThemeMode.DARK
     private var themeColor: String? = templateEngine.themeColor
     private var cdnInjected: Boolean = false
 
     init {
         activeApplication = this
+        applyThemeNative(themeMode)
         if (!themeColor.isNullOrBlank()) {
             nativeApplication.setStyle("--genericui-theme-color", themeColor)
             nativeApplication.setAttribute("data-genericui-theme-color", themeColor!!)
@@ -30,6 +29,31 @@ class WebApplicationImpl(
         } else {
             ensureBootstrapCdnInjected()
         }
+    }
+
+    internal fun attachTopMenuBar(menuBarDom: WebDomElement?) {
+        val prev = topMenuBarElement
+        if (prev != null && prev !== menuBarDom) {
+            nativeApplication.removeChild(prev)
+        }
+        topMenuBarElement = menuBarDom
+        if (menuBarDom != null) {
+            menuBarDom.parent?.removeChild(menuBarDom)
+            menuBarDom.parent = nativeApplication
+            nativeApplication.children.add(0, menuBarDom)
+            WebBrowserDomBridge.insertChildAt(nativeApplication, 0, menuBarDom)
+            WebBrowserDomBridge.syncElementTree(nativeApplication)
+        }
+    }
+
+    internal fun applyThemeNative(mode: ThemeMode) {
+        val bsTheme = when (mode) {
+            ThemeMode.LIGHT -> "light"
+            ThemeMode.DARK, ThemeMode.SYSTEM -> "dark"
+        }
+        nativeApplication.removeAttribute("id")
+        nativeApplication.removeAttribute("data-bs-theme")
+        WebBrowserDomBridge.setDocumentTheme(bsTheme)
     }
 
     /**
@@ -74,12 +98,7 @@ class WebApplicationImpl(
 
     override fun setThemeMode(mode: ThemeMode) {
         themeMode = mode
-        val bsTheme = when (mode) {
-            ThemeMode.LIGHT -> "light"
-            ThemeMode.DARK, ThemeMode.SYSTEM -> "dark"
-        }
-        nativeApplication.setAttribute("data-bs-theme", bsTheme)
-        WebBrowserDomBridge.setDocumentTheme(bsTheme)
+        applyThemeNative(mode)
     }
 
     override fun getThemeMode(): ThemeMode = themeMode

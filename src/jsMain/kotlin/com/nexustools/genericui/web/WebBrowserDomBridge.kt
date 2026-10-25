@@ -15,39 +15,36 @@ actual object WebBrowserDomBridge {
         val doc: dynamic = js("document")
         val peer: dynamic = doc.createElement(element.tagName)
         element.browserPeer = peer
-        attachNativeListeners(element, peer)
+        attachInteractiveListeners(element, peer)
     }
 
     actual fun bindApplicationRoot(element: WebDomElement) {
         if (!isBrowserEnvironment) return
         val doc: dynamic = js("document")
         val attachToDocument = {
-            // Remove any legacy standalone .loader element directly inside body outside #genericui-app
+            // Remove any legacy standalone .loader element directly inside body outside genericui:root
             val bodyLoader: dynamic = doc.querySelector("body > .loader")
             if (bodyLoader != null && bodyLoader.parentNode != null) {
                 bodyLoader.parentNode.removeChild(bodyLoader)
             }
 
-            val rootId = element.id.ifEmpty { "genericui-app" }
-            val existing: dynamic = doc.getElementById(rootId)
-            if (existing != null) {
+            val existing: dynamic = doc.getElementsByTagName("genericui:root")?.item(0)
+                ?: doc.querySelector("genericui\\:root")
+            val host: dynamic = existing ?: doc.createElement("genericui:root")
+            if (host != null) {
+                if (js("typeof host.hasAttribute === 'function'") as Boolean) {
+                    if (host.hasAttribute("id") as Boolean) host.removeAttribute("id")
+                    if (host.hasAttribute("data-bs-theme") as Boolean) host.removeAttribute("data-bs-theme")
+                }
                 val oldPeer: dynamic = element.browserPeer
-                if (oldPeer != null && oldPeer !== existing) {
+                if (oldPeer != null && oldPeer !== host) {
                     while (oldPeer.firstChild != null) {
-                        existing.appendChild(oldPeer.firstChild)
+                        host.appendChild(oldPeer.firstChild)
                     }
                 }
-                val theme = element.getAttribute("data-bs-theme") ?: "dark"
-                existing.setAttribute("data-bs-theme", theme)
-                element.browserPeer = existing
-            } else if (doc.body != null) {
-                val peer: dynamic = element.browserPeer ?: doc.createElement("div")
-                peer.id = rootId
-                val theme = element.getAttribute("data-bs-theme") ?: "dark"
-                peer.setAttribute("data-bs-theme", theme)
-                element.browserPeer = peer
-                if (peer.parentNode == null) {
-                    doc.body.appendChild(peer)
+                element.browserPeer = host
+                if (host.parentNode == null && doc.body != null) {
+                    doc.body.appendChild(host)
                 }
             }
             val win: dynamic = js("window")
@@ -65,82 +62,174 @@ actual object WebBrowserDomBridge {
         }
     }
 
-    private fun attachNativeListeners(element: WebDomElement, peer: dynamic) {
+    actual fun syncElementTree(element: WebDomElement) {
+        if (!isBrowserEnvironment) return
+        val parentPeer: dynamic = resolveContainerTarget(element) ?: return
+        for ((index, child) in element.children.withIndex()) {
+            val childPeer: dynamic = child.browserPeer ?: continue
+            val currentAtIdx: dynamic = parentPeer.children?.get(index)
+            if (currentAtIdx !== childPeer) {
+                if (currentAtIdx != null) {
+                    parentPeer.insertBefore(childPeer, currentAtIdx)
+                } else {
+                    parentPeer.appendChild(childPeer)
+                }
+            }
+        }
+    }
+
+    private fun attachInteractiveListeners(model: WebDomElement, peer: dynamic) {
         peer.addEventListener("click", { _: dynamic ->
-            if (!element.disabled) {
-                element.dispatchFromBrowser("click", null)
+            if (!model.disabled) {
+                model.dispatchFromBrowser("click", null)
             }
         })
         peer.addEventListener("dblclick", { _: dynamic ->
-            if (!element.disabled) {
-                element.dispatchFromBrowser("dblclick", null)
+            if (!model.disabled) {
+                model.dispatchFromBrowser("dblclick", null)
+            }
+        })
+        peer.addEventListener("mouseenter", { _: dynamic ->
+            if (!model.disabled) {
+                model.dispatchFromBrowser("mouseenter", null)
+            }
+        })
+        peer.addEventListener("mouseleave", { _: dynamic ->
+            if (!model.disabled) {
+                model.dispatchFromBrowser("mouseleave", null)
             }
         })
         peer.addEventListener("input", { _: dynamic ->
             val v = peer.value
             if (v is String) {
-                element.updateValueFromBrowser(v)
+                model.updateValueFromBrowser(v)
             }
             val c = peer.checked
             if (c is Boolean) {
-                element.updateCheckedFromBrowser(c)
+                model.updateCheckedFromBrowser(c)
             }
-            element.dispatchFromBrowser("input", element.value)
+            model.dispatchFromBrowser("input", model.value)
         })
         peer.addEventListener("change", { _: dynamic ->
             val v = peer.value
             if (v is String) {
-                element.updateValueFromBrowser(v)
+                model.updateValueFromBrowser(v)
             }
             val c = peer.checked
             if (c is Boolean) {
-                element.updateCheckedFromBrowser(c)
+                model.updateCheckedFromBrowser(c)
             }
-            if (element.tagName.equals("input", ignoreCase = true) && element.getAttribute("type") == "file") {
-                handleFileInputChange(element, peer)
+            if (model.tagName.equals("input", ignoreCase = true) && model.getAttribute("type") == "file") {
+                handleFileInputChange(model, peer)
             } else {
-                element.dispatchFromBrowser("change", element.value)
+                model.dispatchFromBrowser("change", model.value)
             }
         })
         peer.addEventListener("cancel", { _: dynamic ->
-            element.dispatchFromBrowser("cancel", null)
+            model.dispatchFromBrowser("cancel", null)
         })
-        peer.addEventListener("contextmenu", { ev: dynamic ->
-            val pe = toPointerEvent(ev, defaultButton = 2)
-            element.dispatchFromBrowser("contextmenu", pe)
+        var longPressTimer: dynamic = null
+        var longPressTriggered = false
+        var touchStartX = 0f
+        var touchStartY = 0f
+        val cancelLongPress = {
+            if (longPressTimer != null) {
+                val win: dynamic = js("window")
+                win.clearTimeout(longPressTimer)
+                longPressTimer = null
+            }
+        }
+        peer.addEventListener("contextmenu", { event: dynamic ->
+            if (!model.disabled && "contextmenu" in model.eventListeners) {
+                if (js("typeof event.preventDefault === 'function'") as Boolean) event.preventDefault()
+                if (js("typeof event.stopPropagation === 'function'") as Boolean) event.stopPropagation()
+                if (longPressTriggered) {
+                    longPressTriggered = false
+                } else {
+                    val cx = (event.clientX as? Number)?.toInt() ?: 0
+                    val cy = (event.clientY as? Number)?.toInt() ?: 0
+                    model.dispatchEvent("contextmenu", "$cx,$cy")
+                }
+            }
+        })
+        peer.addEventListener("touchstart", { event: dynamic ->
+            cancelLongPress()
+            longPressTriggered = false
+            val touchCount = (event.touches?.length as? Number)?.toInt() ?: 0
+            if (!model.disabled && "contextmenu" in model.eventListeners && touchCount == 1) {
+                val touch: dynamic = event.touches?.get(0)
+                if (touch != null) {
+                    touchStartX = (touch.clientX as? Number)?.toFloat() ?: 0f
+                    touchStartY = (touch.clientY as? Number)?.toFloat() ?: 0f
+                    val win: dynamic = js("window")
+                    longPressTimer = win.setTimeout({
+                        longPressTimer = null
+                        if (!model.disabled && "contextmenu" in model.eventListeners) {
+                            longPressTriggered = true
+                            model.dispatchEvent("contextmenu", "${touchStartX.toInt()},${touchStartY.toInt()}")
+                        }
+                    }, WebDomElement.LONG_PRESS_THRESHOLD_MS)
+                }
+            }
+        })
+        peer.addEventListener("touchmove", { event: dynamic ->
+            if (longPressTimer != null) {
+                val touchCount = (event.touches?.length as? Number)?.toInt() ?: 0
+                val touch: dynamic = event.touches?.get(0)
+                if (touchCount != 1 || touch == null) {
+                    cancelLongPress()
+                } else {
+                    val dx = ((touch.clientX as? Number)?.toFloat() ?: 0f) - touchStartX
+                    val dy = ((touch.clientY as? Number)?.toFloat() ?: 0f) - touchStartY
+                    if (dx * dx + dy * dy > 100f) {
+                        cancelLongPress()
+                    }
+                }
+            }
+        })
+        peer.addEventListener("touchend", { event: dynamic ->
+            cancelLongPress()
+            if (longPressTriggered) {
+                if (js("typeof event.preventDefault === 'function'") as Boolean) event.preventDefault()
+                longPressTriggered = false
+            }
+        })
+        peer.addEventListener("touchcancel", { _: dynamic ->
+            cancelLongPress()
+            longPressTriggered = false
         })
         peer.addEventListener("pointerdown", { ev: dynamic ->
             val pe = toPointerEvent(ev, defaultButton = 0)
-            element.dispatchFromBrowser("pointerdown", pe)
+            model.dispatchFromBrowser("pointerdown", pe)
         })
         peer.addEventListener("pointermove", { ev: dynamic ->
             val pe = toPointerEvent(ev, defaultButton = 0)
-            element.dispatchFromBrowser("pointermove", pe)
+            model.dispatchFromBrowser("pointermove", pe)
         })
         peer.addEventListener("pointerup", { ev: dynamic ->
             val pe = toPointerEvent(ev, defaultButton = 0)
-            element.dispatchFromBrowser("pointerup", pe)
+            model.dispatchFromBrowser("pointerup", pe)
         })
         peer.addEventListener("wheel", { ev: dynamic ->
             val dx = (ev.deltaX as? Number)?.toFloat() ?: 0f
             val dy = (ev.deltaY as? Number)?.toFloat() ?: 0f
             val cx = (ev.clientX as? Number)?.toFloat() ?: 0f
             val cy = (ev.clientY as? Number)?.toFloat() ?: 0f
-            element.dispatchFromBrowser("wheel", WheelEvent(dx, dy, cx, cy))
+            model.dispatchFromBrowser("wheel", WheelEvent(dx, dy, cx, cy))
         })
         peer.addEventListener("keydown", { ev: dynamic ->
             val ke = toKeyEvent(ev)
-            element.dispatchFromBrowser("keydown", ke)
+            model.dispatchFromBrowser("keydown", ke)
         })
         peer.addEventListener("keyup", { ev: dynamic ->
             val ke = toKeyEvent(ev)
-            element.dispatchFromBrowser("keyup", ke)
+            model.dispatchFromBrowser("keyup", ke)
         })
         peer.addEventListener("load", { _: dynamic ->
-            element.dispatchFromBrowser("load", null)
+            model.dispatchFromBrowser("load", null)
         })
         peer.addEventListener("error", { _: dynamic ->
-            element.dispatchFromBrowser("error", null)
+            model.dispatchFromBrowser("error", null)
         })
     }
 

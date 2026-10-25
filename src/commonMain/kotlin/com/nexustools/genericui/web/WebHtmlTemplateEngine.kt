@@ -52,6 +52,9 @@ class WebHtmlTemplateEngine(
         loaderHash: String? = null,
         namespaceXmlUrl: String = WebNamespaceSpec.DEFAULT_NAMESPACE_XML_FILENAME,
         namespaceXmlHash: String? = null,
+        genericUiCssUrl: String = WebNamespaceSpec.DEFAULT_GENERICUI_CSS_FILENAME,
+        genericUiCssContent: String = WebNamespaceSpec.DEFAULT_GENERICUI_CSS,
+        genericUiCssHash: String? = null,
         webIconUrl: String? = null,
         splash: WebSplashConfig = splashConfig,
         manifest: WebAppManifestConfig = manifestConfig,
@@ -144,8 +147,12 @@ class WebHtmlTemplateEngine(
             ?: WebWasmJsLoader.defaultLoaderSha1Hash
 
         val resolvedNamespaceXmlUrl = namespaceXmlUrl.trim().ifEmpty { WebNamespaceSpec.DEFAULT_NAMESPACE_XML_FILENAME }
-        val resolvedNamespaceXmlHash = namespaceXmlHash?.trim()?.takeIf { it.isNotEmpty() }
+        val resolvedNamespaceXmlHash = namespaceXmlHash?.trim()?.takeIf { it.isNotBlank() }
             ?: WebNamespaceSpec.defaultNamespaceXmlSha1Hash
+
+        val resolvedGenericUiCssUrl = genericUiCssUrl.trim().ifEmpty { WebNamespaceSpec.DEFAULT_GENERICUI_CSS_FILENAME }
+        val resolvedGenericUiCssHash = genericUiCssHash?.trim()?.takeIf { it.isNotBlank() }
+            ?: WebSha1Hasher.sha1Hex(genericUiCssContent)
 
         return customTemplate
             .replace("{{LANG}}", lang)
@@ -153,6 +160,8 @@ class WebHtmlTemplateEngine(
             .replace("{{THEME_MODE}}", bsTheme)
             .replace("{{NAMESPACE_XML_URL}}", resolvedNamespaceXmlUrl)
             .replace("{{NAMESPACE_XML_HASH}}", resolvedNamespaceXmlHash)
+            .replace("{{GENERICUI_CSS_URL}}", resolvedGenericUiCssUrl)
+            .replace("{{GENERICUI_CSS_HASH}}", resolvedGenericUiCssHash)
             .replace("{{NAMESPACE_CSS}}", WebNamespaceSpec.DEFAULT_NAMESPACE_CSS)
             .replace("{{FAVICON_LINK}}", faviconLink)
             .replace("{{WEB_MANIFEST_AND_PWA_LINKS}}", webManifestAndPwaLinks)
@@ -237,6 +246,17 @@ class WebHtmlTemplateEngine(
                 setAttribute(
                     "href",
                     "${WebNamespaceSpec.DEFAULT_NAMESPACE_XML_FILENAME}?${WebNamespaceSpec.defaultNamespaceXmlSha1Hash}"
+                )
+            }
+        )
+
+        elements.add(
+            WebDomElement("link").apply {
+                id = "genericui-css"
+                setAttribute("rel", "stylesheet")
+                setAttribute(
+                    "href",
+                    "${WebNamespaceSpec.DEFAULT_GENERICUI_CSS_FILENAME}?${WebNamespaceSpec.defaultGenericUiCssSha1Hash}"
                 )
             }
         )
@@ -333,7 +353,7 @@ class WebHtmlTemplateEngine(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{TITLE}}</title>
     <link id="genericui-namespace-spec" rel="namespace" data-namespace-prefix="genericui" data-namespace-uri="https://nexustools.com/ns/genericui" type="application/xml" href="{{NAMESPACE_XML_URL}}?{{NAMESPACE_XML_HASH}}">
-    <style id="genericui-namespace-styles">{{NAMESPACE_CSS}}</style>
+    <link id="genericui-css" rel="stylesheet" href="{{GENERICUI_CSS_URL}}?{{GENERICUI_CSS_HASH}}">
 {{FAVICON_LINK}}
 {{WEB_MANIFEST_AND_PWA_LINKS}}
     <link id="genericui-bootstrap-css" rel="stylesheet" href="{{BOOTSTRAP_CSS_URL}}" integrity="{{BOOTSTRAP_CSS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}">
@@ -359,7 +379,7 @@ class WebHtmlTemplateEngine(
             </div>
         </div>
     </div>
-    <div id="{{ROOT_CONTAINER_ID}}" data-bs-theme="{{THEME_MODE}}"></div>
+    <genericui:root></genericui:root>
     <script id="genericui-bootstrap-js" src="{{BOOTSTRAP_JS_URL}}" integrity="{{BOOTSTRAP_JS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}" defer></script>
 {{EXTRA_SCRIPTS}}
     <script type="loader-wasm" src="{{WASM_URL}}?{{WASM_HASH}}"{{WASM_BINARY_ATTR}}></script>
@@ -367,5 +387,7 @@ class WebHtmlTemplateEngine(
     <script id="genericui-loader-script" src="{{LOADER_JS_URL}}?{{LOADER_JS_HASH}}" defer></script>
 </body>
 </html>"""
+
+        const val DEFAULT_HTML_TEMPLATE: String = DEFAULT_INDEX_TEMPLATE
     }
 }

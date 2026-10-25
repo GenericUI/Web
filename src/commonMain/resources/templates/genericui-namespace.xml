@@ -10,9 +10,14 @@
     </commonAttributes>
     <elements>
         <!-- Core Base Component -->
+        <element name="root" tag="genericui:root" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
         <element name="component" tag="genericui:component" componentClass="AbstractComponent" category="core" display="block" role="generic" description="Base GenericUI component element."/>
+        <element name="fragment" tag="genericui:fragment" componentClass="Fragment" category="core" display="block" role="region" description="Modular lifecycle-aware UI fragment container."/>
+        <element name="fragment-container" tag="genericui:fragment-container" componentClass="FragmentContainer" category="core" display="block" role="region" description="Host container mounting and transitioning Fragment instances."/>
+        <element name="scrollfragment" tag="genericui:scrollfragment" componentClass="ScrollFragment" category="shell" display="block" role="region" description="Scrollable activity-like lifecycle fragment container."/>
 
         <!-- Shell & Window Chrome -->
+        <element name="window" tag="genericui:window" componentClass="Window" category="shell" display="flex" role="region" description="Top-level GenericUI window container inside genericui:root."/>
         <element name="menubar" tag="genericui:menubar" componentClass="MenuBar" category="shell" display="flex" role="menubar" description="Top-level horizontal application menu bar."/>
         <element name="menu" tag="genericui:menu" componentClass="Menu" category="shell" display="inline-block" role="menu" description="Pull-down or cascading submenu container.">
             <attribute name="data-menu-label" type="string" description="Menu header label."/>

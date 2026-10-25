@@ -216,6 +216,9 @@ class WebDomElement(val tagName: String) {
 
     private val listeners = linkedMapOf<String, MutableList<(Any?) -> Unit>>()
 
+    val eventListeners: Map<String, List<(Any?) -> Unit>>
+        get() = listeners
+
     init {
         WebBrowserDomBridge.createPeer(this)
     }
@@ -289,7 +292,11 @@ class WebDomElement(val tagName: String) {
     }
 
     fun removeEventListener(type: String, listener: (Any?) -> Unit) {
-        listeners[type]?.remove(listener)
+        val list = listeners[type] ?: return
+        list.remove(listener)
+        if (list.isEmpty()) {
+            listeners.remove(type)
+        }
     }
 
     fun dispatchEvent(type: String, payload: Any? = null) {
@@ -302,5 +309,44 @@ class WebDomElement(val tagName: String) {
                 dispatchEvent("click")
             }
         }
+    }
+
+    /**
+     * Simulates a mouse right-click (`contextmenu`) activation at viewport coordinates `(x, y)`.
+     */
+    fun simulateRightClick(x: Int = 0, y: Int = 0) {
+        if (!disabled && "contextmenu" in listeners) {
+            dispatchEvent("contextmenu", "$x,$y")
+        }
+    }
+
+    /**
+     * Simulates a mobile touch long-press gesture at viewport coordinates `(x, y)`.
+     * Activates `"contextmenu"` when [durationMs] is at least [LONG_PRESS_THRESHOLD_MS] (500ms)
+     * and touch movement stays within the 10px threshold.
+     */
+    fun simulateLongPress(
+        x: Int = 0,
+        y: Int = 0,
+        durationMs: Int = LONG_PRESS_THRESHOLD_MS,
+        moveDeltaX: Int = 0,
+        moveDeltaY: Int = 0
+    ): Boolean {
+        if (disabled || "contextmenu" !in listeners) return false
+        dispatchEvent("touchstart", "$x,$y")
+        if (moveDeltaX != 0 || moveDeltaY != 0) {
+            dispatchEvent("touchmove", "${x + moveDeltaX},${y + moveDeltaY}")
+        }
+        val movedTooFar = moveDeltaX * moveDeltaX + moveDeltaY * moveDeltaY > 100
+        val triggered = !movedTooFar && durationMs >= LONG_PRESS_THRESHOLD_MS
+        if (triggered) {
+            dispatchEvent("contextmenu", "$x,$y")
+        }
+        dispatchEvent("touchend", "$x,$y")
+        return triggered
+    }
+
+    companion object {
+        const val LONG_PRESS_THRESHOLD_MS: Int = 500
     }
 }

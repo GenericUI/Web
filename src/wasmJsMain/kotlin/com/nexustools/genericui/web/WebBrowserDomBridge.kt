@@ -12,29 +12,34 @@ private external fun wasmIsBrowserEnv(): Boolean
 @JsFun("(tagName) => document.createElement(tagName)")
 private external fun wasmCreateElement(tagName: String): JsAny
 
-@JsFun("(oldPeer, rootId, theme) => { " +
+@JsFun("(oldPeer) => { " +
     "const doc = document; " +
     "const attach = () => { " +
     "  const loader = doc.querySelector('body > .loader'); " +
     "  if (loader && loader.parentNode) loader.parentNode.removeChild(loader); " +
-    "  let el = doc.getElementById(rootId); " +
-    "  if (!el && doc.body) { el = doc.createElement('div'); el.id = rootId; doc.body.appendChild(el); } " +
+    "  let el = (doc.getElementsByTagName('genericui:root') && doc.getElementsByTagName('genericui:root').item(0)) || doc.querySelector('genericui\\\\:root'); " +
+    "  if (!el && doc.body) { el = doc.createElement('genericui:root'); doc.body.appendChild(el); } " +
     "  if (el) { " +
+    "    if (typeof el.hasAttribute === 'function') { " +
+    "      if (el.hasAttribute('id')) el.removeAttribute('id'); " +
+    "      if (el.hasAttribute('data-bs-theme')) el.removeAttribute('data-bs-theme'); " +
+    "    } " +
     "    if (oldPeer && oldPeer !== el) { " +
     "      while (oldPeer.firstChild) { el.appendChild(oldPeer.firstChild); } " +
     "    } " +
-    "    el.setAttribute('data-bs-theme', theme); " +
     "  } " +
     "  if (window.GenericUiSplash && typeof window.GenericUiSplash.finish === 'function') window.GenericUiSplash.finish(); " +
     "}; " +
     "if (doc.body) attach(); else doc.addEventListener('DOMContentLoaded', attach); " +
-    "return doc.getElementById(rootId) || oldPeer || doc.createElement('div'); " +
+    "return (doc.getElementsByTagName('genericui:root') && doc.getElementsByTagName('genericui:root').item(0)) || doc.querySelector('genericui\\\\:root') || oldPeer || doc.createElement('genericui:root'); " +
     "}")
-private external fun wasmBindRoot(oldPeer: JsAny?, rootId: String, theme: String): JsAny
+private external fun wasmBindRoot(oldPeer: JsAny?): JsAny
 
-@JsFun("(peer, onClick, onDblClick, onInput, onChange, onCancel, onWheel, onLoad, onError) => { " +
+@JsFun("(peer, onClick, onDblClick, onMouseEnter, onMouseLeave, onInput, onChange, onCancel, onWheel, onLoad, onError) => { " +
     "peer.addEventListener('click', () => { onClick(); }); " +
     "peer.addEventListener('dblclick', () => { onDblClick(); }); " +
+    "peer.addEventListener('mouseenter', () => { onMouseEnter(); }); " +
+    "peer.addEventListener('mouseleave', () => { onMouseLeave(); }); " +
     "peer.addEventListener('input', () => { " +
     "  const v = typeof peer.value === 'string' ? peer.value : ''; " +
     "  const c = typeof peer.checked === 'boolean' ? peer.checked : false; " +
@@ -56,6 +61,8 @@ private external fun wasmAttachBasicListeners(
     peer: JsAny,
     onClick: () -> Unit,
     onDblClick: () -> Unit,
+    onMouseEnter: () -> Unit,
+    onMouseLeave: () -> Unit,
     onInput: (String, Boolean) -> Unit,
     onChange: (String, Boolean) -> Unit,
     onCancel: () -> Unit,
@@ -64,11 +71,42 @@ private external fun wasmAttachBasicListeners(
     onError: () -> Unit
 )
 
-@JsFun("(peer, onContextMenu, onPointerDown, onPointerMove, onPointerUp, onKeyDown, onKeyUp) => { " +
+@JsFun("(peer, hasContextMenuListener, onContextMenu, onPointerDown, onPointerMove, onPointerUp, onKeyDown, onKeyUp) => { " +
     "const ptr = (ev, defBtn, cb) => { " +
     "  cb(ev.clientX || 0, ev.clientY || 0, typeof ev.button === 'number' ? ev.button : defBtn, ev.buttons || 0, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey); " +
     "}; " +
-    "peer.addEventListener('contextmenu', (ev) => ptr(ev, 2, onContextMenu)); " +
+    "let lpTimer = null; let lpFired = false; let startX = 0; let startY = 0; " +
+    "const cancelLp = () => { if (lpTimer !== null) { window.clearTimeout(lpTimer); lpTimer = null; } }; " +
+    "peer.addEventListener('contextmenu', (ev) => { " +
+    "  if (!peer.disabled && hasContextMenuListener()) { " +
+    "    if (typeof ev.preventDefault === 'function') ev.preventDefault(); " +
+    "    if (typeof ev.stopPropagation === 'function') ev.stopPropagation(); " +
+    "    if (lpFired) { lpFired = false; } else { onContextMenu(ev.clientX || 0, ev.clientY || 0); } " +
+    "  } " +
+    "}); " +
+    "peer.addEventListener('touchstart', (ev) => { " +
+    "  cancelLp(); lpFired = false; " +
+    "  if (!peer.disabled && hasContextMenuListener() && ev.touches && ev.touches.length === 1) { " +
+    "    startX = ev.touches[0].clientX || 0; startY = ev.touches[0].clientY || 0; " +
+    "    lpTimer = window.setTimeout(() => { " +
+    "      lpTimer = null; " +
+    "      if (!peer.disabled && hasContextMenuListener()) { lpFired = true; onContextMenu(startX | 0, startY | 0); } " +
+    "    }, 500); " +
+    "  } " +
+    "}); " +
+    "peer.addEventListener('touchmove', (ev) => { " +
+    "  if (lpTimer !== null) { " +
+    "    if (!ev.touches || ev.touches.length !== 1) { cancelLp(); } else { " +
+    "      const dx = (ev.touches[0].clientX || 0) - startX; const dy = (ev.touches[0].clientY || 0) - startY; " +
+    "      if (dx * dx + dy * dy > 100) cancelLp(); " +
+    "    } " +
+    "  } " +
+    "}); " +
+    "peer.addEventListener('touchend', (ev) => { " +
+    "  cancelLp(); " +
+    "  if (lpFired) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); lpFired = false; } " +
+    "}); " +
+    "peer.addEventListener('touchcancel', () => { cancelLp(); lpFired = false; }); " +
     "peer.addEventListener('pointerdown', (ev) => ptr(ev, 0, onPointerDown)); " +
     "peer.addEventListener('pointermove', (ev) => ptr(ev, 0, onPointerMove)); " +
     "peer.addEventListener('pointerup', (ev) => ptr(ev, 0, onPointerUp)); " +
@@ -82,7 +120,8 @@ private external fun wasmAttachBasicListeners(
     "}")
 private external fun wasmAttachInputListeners(
     peer: JsAny,
-    onContextMenu: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
+    hasContextMenuListener: () -> Boolean,
+    onContextMenu: (Int, Int) -> Unit,
     onPointerDown: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onPointerMove: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onPointerUp: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
@@ -273,75 +312,89 @@ actual object WebBrowserDomBridge {
         if (!isBrowserEnvironment) return
         val peer = wasmCreateElement(element.tagName)
         element.browserPeer = peer
+        attachInteractiveListeners(element, peer)
+    }
+
+    private fun attachInteractiveListeners(model: WebDomElement, peer: JsAny) {
         wasmAttachBasicListeners(
             peer = peer,
             onClick = {
-                if (!element.disabled) {
-                    element.dispatchFromBrowser("click", null)
+                if (!model.disabled) {
+                    model.dispatchFromBrowser("click", null)
                 }
             },
             onDblClick = {
-                if (!element.disabled) {
-                    element.dispatchFromBrowser("dblclick", null)
+                if (!model.disabled) {
+                    model.dispatchFromBrowser("dblclick", null)
+                }
+            },
+            onMouseEnter = {
+                if (!model.disabled) {
+                    model.dispatchFromBrowser("mouseenter", null)
+                }
+            },
+            onMouseLeave = {
+                if (!model.disabled) {
+                    model.dispatchFromBrowser("mouseleave", null)
                 }
             },
             onInput = { v, c ->
-                element.updateValueFromBrowser(v)
-                element.updateCheckedFromBrowser(c)
-                element.dispatchFromBrowser("input", element.value)
+                model.updateValueFromBrowser(v)
+                model.updateCheckedFromBrowser(c)
+                model.dispatchFromBrowser("input", model.value)
             },
             onChange = { v, c ->
-                element.updateValueFromBrowser(v)
-                element.updateCheckedFromBrowser(c)
-                element.dispatchFromBrowser("change", element.value)
+                model.updateValueFromBrowser(v)
+                model.updateCheckedFromBrowser(c)
+                model.dispatchFromBrowser("change", model.value)
             },
             onCancel = {
-                element.dispatchFromBrowser("cancel", null)
+                model.dispatchFromBrowser("cancel", null)
             },
             onWheel = { dx, dy, cx, cy ->
-                element.dispatchFromBrowser("wheel", WheelEvent(dx, dy, cx, cy))
+                model.dispatchFromBrowser("wheel", WheelEvent(dx, dy, cx, cy))
             },
             onLoad = {
-                element.dispatchFromBrowser("load", null)
+                model.dispatchFromBrowser("load", null)
             },
             onError = {
-                element.dispatchFromBrowser("error", null)
+                model.dispatchFromBrowser("error", null)
             }
         )
         wasmAttachInputListeners(
             peer = peer,
-            onContextMenu = { x, y, btn, btns, shift, ctrl, alt, meta ->
-                element.dispatchFromBrowser(
-                    "contextmenu",
-                    PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
-                )
+            hasContextMenuListener = { "contextmenu" in model.eventListeners },
+            onContextMenu = { cx, cy ->
+                if ("contextmenu" in model.eventListeners) {
+                    model.dispatchEvent("contextmenu", "$cx,$cy")
+                }
             },
             onPointerDown = { x, y, btn, btns, shift, ctrl, alt, meta ->
-                element.dispatchFromBrowser(
+                model.dispatchFromBrowser(
                     "pointerdown",
                     PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
                 )
             },
             onPointerMove = { x, y, btn, btns, shift, ctrl, alt, meta ->
-                element.dispatchFromBrowser(
+                model.dispatchFromBrowser(
                     "pointermove",
                     PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
                 )
             },
             onPointerUp = { x, y, btn, btns, shift, ctrl, alt, meta ->
-                element.dispatchFromBrowser(
+                model.dispatchFromBrowser(
                     "pointerup",
                     PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
                 )
             },
             onKeyDown = { key, code, shift, ctrl, alt, meta, repeat ->
-                element.dispatchFromBrowser(
+                model.dispatchFromBrowser(
                     "keydown",
                     KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
                 )
             },
             onKeyUp = { key, code, shift, ctrl, alt, meta, repeat ->
-                element.dispatchFromBrowser(
+                model.dispatchFromBrowser(
                     "keyup",
                     KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
                 )
@@ -351,10 +404,17 @@ actual object WebBrowserDomBridge {
 
     actual fun bindApplicationRoot(element: WebDomElement) {
         if (!isBrowserEnvironment) return
-        val rootId = element.id.ifEmpty { "genericui-app" }
-        val theme = element.getAttribute("data-bs-theme") ?: "dark"
         val oldPeer = element.browserPeer as? JsAny
-        element.browserPeer = wasmBindRoot(oldPeer, rootId, theme)
+        element.browserPeer = wasmBindRoot(oldPeer)
+    }
+
+    actual fun syncElementTree(element: WebDomElement) {
+        if (!isBrowserEnvironment) return
+        val parentPeer = element.browserPeer as? JsAny ?: return
+        for ((index, child) in element.children.withIndex()) {
+            val childPeer = child.browserPeer as? JsAny ?: continue
+            wasmInsertChildAt(parentPeer, index, childPeer)
+        }
     }
 
     actual fun syncId(element: WebDomElement, id: String) {

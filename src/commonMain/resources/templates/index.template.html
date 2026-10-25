@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{TITLE}}</title>
     <link id="genericui-namespace-spec" rel="namespace" data-namespace-prefix="genericui" data-namespace-uri="https://nexustools.com/ns/genericui" type="application/xml" href="{{NAMESPACE_XML_URL}}?{{NAMESPACE_XML_HASH}}">
-    <style id="genericui-namespace-styles">{{NAMESPACE_CSS}}</style>
+    <link id="genericui-css" rel="stylesheet" href="{{GENERICUI_CSS_URL}}?{{GENERICUI_CSS_HASH}}">
 {{FAVICON_LINK}}
 {{WEB_MANIFEST_AND_PWA_LINKS}}
     <link id="genericui-bootstrap-css" rel="stylesheet" href="{{BOOTSTRAP_CSS_URL}}" integrity="{{BOOTSTRAP_CSS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}">
@@ -31,7 +31,7 @@
             </div>
         </div>
     </div>
-    <div id="{{ROOT_CONTAINER_ID}}" data-bs-theme="{{THEME_MODE}}"></div>
+    <genericui:root></genericui:root>
     <script id="genericui-bootstrap-js" src="{{BOOTSTRAP_JS_URL}}" integrity="{{BOOTSTRAP_JS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}" defer></script>
 {{EXTRA_SCRIPTS}}
     <script type="loader-wasm" src="{{WASM_URL}}?{{WASM_HASH}}"{{WASM_BINARY_ATTR}}></script>

@@ -39,8 +39,7 @@ import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
  *
  * Applies CSS classes directly to the HTML5 DOM (`classList`) while simulating Bootstrap Enum getters/setters,
  * uses an invisible `<input type="file">` for native file/folder browsing ([WebFileBrowserDialogImpl]),
- * mounts/unmounts DOM nodes lazily in [WebLazyListImpl], [WebLazyGridImpl], and [WebTreeViewImpl],
- * and drives `Canvas2D`, `GLCanvas` (WebGL2), and `VKCanvas` (WebGPU) via `requestAnimationFrame` with `deltaMs`.
+ * and mounts/unmounts DOM nodes lazily in [WebLazyListImpl], [WebLazyGridImpl], and [WebTreeViewImpl].
  */
 class WebNativeFactory(
     val templateEngine: WebHtmlTemplateEngine = WebHtmlTemplateEngine()
@@ -115,4 +114,8 @@ class WebNativeFactory(
     override fun createNotificationManager(): NotificationManagerNativeImpl = WebNotificationManagerImpl()
     override fun createNetworkMonitor(): NetworkMonitorNativeImpl = WebNetworkMonitorImpl()
     override fun createPreferenceStore(appName: String): PreferenceStoreNativeImpl = WebPreferenceStoreImpl(appName)
+    override fun createConfigDirectory(appName: String, subdirectory: String): UserDirectoryNativeImpl =
+        WebUserDirectoryNativeImpl(appName = appName, subdirectory = subdirectory, scheme = "config")
+    override fun createCacheDirectory(appName: String, subdirectory: String): UserDirectoryNativeImpl =
+        WebUserDirectoryNativeImpl(appName = appName, subdirectory = subdirectory, scheme = "cache")
 }

@@ -15,7 +15,7 @@ import com.nexustools.genericui.window.WindowConfiguration
  * On `:web`, `supportsCustomTitleBar` and `supportsEmbeddedMenuBarInTitleBar` are `false` (complete zero-CPU no-op
  * for `TitleBar` instructions), while `MenuBar`, `Navbar`, and `BottomNavigationBar` mount into dedicated DOM slots.
  */
-class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), WindowNativeImpl<WebDomElement> {
+class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-window"), WindowNativeImpl<WebDomElement> {
     override val supportsCustomTitleBar: Boolean = false
     override val supportsEmbeddedMenuBarInTitleBar: Boolean = false
     override val supportsMultiWindow: Boolean = false
@@ -43,8 +43,15 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
     private var onFocusListener: ((Boolean) -> Unit)? = null
     private var onCloseRequestedListener: (() -> Boolean)? = null
 
+    private var ownerWindowRef: WebWindowImpl? = null
+    private var alwaysOnTopOfOwnerFlag: Boolean = false
+    internal val attachedToolWindows = mutableSetOf<WebWindowImpl>()
+    internal val attachedDockWindows = mutableSetOf<WebDockWindowImpl>()
+
     init {
-        activeWindow = this
+        if (activeWindow == null) {
+            activeWindow = this
+        }
         nativeWidget.style["width"] = "100%"
         nativeWidget.style["height"] = "100%"
         nativeWidget.style["position"] = "relative"
@@ -52,6 +59,9 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
         nativeWidget.appendChild(navSlot)
         nativeWidget.appendChild(contentSlot)
         nativeWidget.appendChild(bottomNavSlot)
+        nativeWidget.addEventListener("pointerdown") {
+            bringToFront()
+        }
         WebBrowserDomBridge.registerWindowResize { w, h ->
             windowSize = Size(w, h)
             nativeWidget.clientWidth = w
@@ -72,6 +82,12 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
     companion object {
         internal var activeWindow: WebWindowImpl? = null
         private var layoutRefreshPending: Boolean = false
+        private var nextWindowZIndex: Int = 1000
+
+        internal fun allocateNextZIndex(): Int {
+            nextWindowZIndex += 1
+            return nextWindowZIndex
+        }
 
         internal fun scheduleLayoutRefresh() {
             if (!WebBrowserDomBridge.isBrowserEnvironment || layoutRefreshPending) return
@@ -138,8 +154,13 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
 
     override fun setMenuBarNative(menuBarImpl: MenuBarNativeImpl<*>?) {
         menuSlot.clearChildren()
-        val dom = menuBarImpl?.nativeWidget as? WebDomElement ?: return
-        menuSlot.appendChild(dom)
+        val dom = menuBarImpl?.nativeWidget as? WebDomElement
+        val activeApp = WebApplicationImpl.activeApplication
+        if (activeApp != null) {
+            activeApp.attachTopMenuBar(dom)
+        } else if (dom != null) {
+            menuSlot.appendChild(dom)
+        }
     }
 
     override fun setNavBarNative(navBarImpl: NativeImpl<*>?) {
@@ -173,11 +194,14 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
         }
         val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
         val vh = WebBrowserDomBridge.getViewportHeight(windowSize.height)
-        windowSize = Size(vw, vh)
-        nativeWidget.clientWidth = vw
-        nativeWidget.clientHeight = vh
+        if (nativeWidget.getAttribute("data-tool-modal") != "true") {
+            windowSize = Size(vw, vh)
+            nativeWidget.clientWidth = vw
+            nativeWidget.clientHeight = vh
+            onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+        }
+        bringToFront()
         onFocusListener?.invoke(true)
-        onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
         scheduleLayoutRefresh()
     }
 
@@ -186,6 +210,53 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
         if (allow) {
             setVisible(false)
         }
+    }
+
+    override fun configureAsToolModalWindow(
+        ownerWindow: WindowNativeImpl<*>?,
+        showInTaskbar: Boolean,
+        minimizable: Boolean,
+        alwaysOnTopOfOwner: Boolean
+    ) {
+        ownerWindowRef?.attachedToolWindows?.remove(this)
+        val webOwner = ownerWindow as? WebWindowImpl
+        ownerWindowRef = webOwner
+        alwaysOnTopOfOwnerFlag = alwaysOnTopOfOwner
+        nativeWidget.setAttribute("data-tool-modal", "true")
+        nativeWidget.setAttribute("data-taskbar-entry", showInTaskbar.toString())
+        nativeWidget.setAttribute("data-minimizable", minimizable.toString())
+        nativeWidget.setAttribute("data-always-on-top-of-owner", alwaysOnTopOfOwner.toString())
+        if (webOwner != null) {
+            webOwner.attachedToolWindows.add(this)
+            val ownerId = webOwner.nativeWidget.id.ifEmpty { "main-window" }
+            nativeWidget.setAttribute("data-owner-window", ownerId)
+        }
+        if (alwaysOnTopOfOwner) {
+            nativeWidget.style["z-index"] = allocateNextZIndex().toString()
+        }
+    }
+
+    override fun bringToFront() {
+        val myZ = allocateNextZIndex()
+        nativeWidget.style["z-index"] = myZ.toString()
+        for (toolWin in attachedToolWindows) {
+            if (toolWin.alwaysOnTopOfOwnerFlag) {
+                toolWin.nativeWidget.style["z-index"] = allocateNextZIndex().toString()
+            }
+        }
+        for (dockWin in attachedDockWindows) {
+            if (dockWin.isAlwaysOnTopOfOwner) {
+                dockWin.bringToFront()
+            }
+        }
+    }
+
+    override fun dispose() {
+        ownerWindowRef?.attachedToolWindows?.remove(this)
+        ownerWindowRef = null
+        attachedToolWindows.clear()
+        attachedDockWindows.clear()
+        super.dispose()
     }
 
     override fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?) {

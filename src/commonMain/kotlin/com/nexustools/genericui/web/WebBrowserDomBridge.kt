@@ -10,6 +10,7 @@ expect object WebBrowserDomBridge {
 
     fun createPeer(element: WebDomElement)
     fun bindApplicationRoot(element: WebDomElement)
+    fun syncElementTree(element: WebDomElement)
 
     fun syncId(element: WebDomElement, id: String)
     fun syncClassName(element: WebDomElement, className: String)

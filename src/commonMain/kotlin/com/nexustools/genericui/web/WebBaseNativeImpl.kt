@@ -51,13 +51,23 @@ open class WebBaseNativeImpl(
     private var onKeyDownCallback: ((KeyEvent) -> Unit)? = null
     private var onKeyUpCallback: ((KeyEvent) -> Unit)? = null
 
+    private val contextMenuDomListener: (Any?) -> Unit = { ev ->
+        val pe = when (ev) {
+            is PointerEvent -> ev
+            is String -> {
+                val parts = ev.split(",")
+                val px = parts.getOrNull(0)?.trim()?.toFloatOrNull() ?: 0f
+                val py = parts.getOrNull(1)?.trim()?.toFloatOrNull() ?: 0f
+                PointerEvent(x = px, y = py, button = 2)
+            }
+            else -> PointerEvent(0f, 0f, button = 2)
+        }
+        onContextMenuCallback?.invoke(pe)
+    }
+
     init {
         nativeWidget.addEventListener("click") { onClickCallback?.invoke() }
         nativeWidget.addEventListener("dblclick") { onDoubleClickCallback?.invoke() }
-        nativeWidget.addEventListener("contextmenu") { ev ->
-            val pe = (ev as? PointerEvent) ?: PointerEvent(0f, 0f, button = 2)
-            onContextMenuCallback?.invoke(pe)
-        }
         nativeWidget.addEventListener("pointerdown") { ev ->
             val pe = (ev as? PointerEvent) ?: PointerEvent(0f, 0f)
             onPointerDownCallback?.invoke(pe)
@@ -387,7 +397,16 @@ open class WebBaseNativeImpl(
 
     override fun setOnClick(listener: (() -> Unit)?) { onClickCallback = listener }
     override fun setOnDoubleClick(listener: (() -> Unit)?) { onDoubleClickCallback = listener }
-    override fun setOnContextMenu(listener: ((PointerEvent) -> Unit)?) { onContextMenuCallback = listener }
+    override fun setOnContextMenu(listener: ((PointerEvent) -> Unit)?) {
+        onContextMenuCallback = listener
+        nativeWidget.removeEventListener("contextmenu", contextMenuDomListener)
+        if (listener != null) {
+            nativeWidget.setAttribute("data-has-context-menu", "true")
+            nativeWidget.addEventListener("contextmenu", contextMenuDomListener)
+        } else {
+            nativeWidget.removeAttribute("data-has-context-menu")
+        }
+    }
     override fun setOnPointerDown(listener: ((PointerEvent) -> Unit)?) { onPointerDownCallback = listener }
     override fun setOnPointerMove(listener: ((PointerEvent) -> Unit)?) { onPointerMoveCallback = listener }
     override fun setOnPointerUp(listener: ((PointerEvent) -> Unit)?) { onPointerUpCallback = listener }
