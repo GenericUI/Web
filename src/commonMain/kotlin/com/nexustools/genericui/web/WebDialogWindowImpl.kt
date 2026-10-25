@@ -5,9 +5,9 @@ import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
 
 /**
- * Web implementation of [DialogWindowNativeImpl] rendered as a Bootstrap `.modal` or pull-down sheet.
+ * Web implementation of [DialogWindowNativeImpl] rendered as `<genericui:dialogwindow class="modal">`.
  */
-class WebDialogWindowImpl : WebBaseContainerNativeImpl("div", "modal"), DialogWindowNativeImpl<WebDomElement> {
+class WebDialogWindowImpl : WebBaseContainerNativeImpl("genericui:dialogwindow", "modal"), DialogWindowNativeImpl<WebDomElement> {
     private var titleText: String = ""
     private var presentationStyle: DialogPresentationStyle = DialogPresentationStyle.WINDOW_MODAL
     private var modalFlag: Boolean = true

@@ -69,6 +69,7 @@ class WebNativeFactory(
 
     // Layout
     override fun createContainer(classPrefix: String): ContainerNativeImpl<*> = WebContainerImpl(classPrefix)
+    override fun createContainer(classPrefix: String, tagName: String): ContainerNativeImpl<*> = WebContainerImpl(classPrefix, tagName)
     override fun createScrollView(): ScrollViewNativeImpl<*> = WebScrollViewImpl()
     override fun createDivider(): DividerNativeImpl<*> = WebDividerImpl()
 
@@ -111,4 +112,5 @@ class WebNativeFactory(
     override fun createSystemTray(): SystemTrayNativeImpl = WebSystemTrayImpl()
     override fun createNotificationManager(): NotificationManagerNativeImpl = WebNotificationManagerImpl()
     override fun createNetworkMonitor(): NetworkMonitorNativeImpl = WebNetworkMonitorImpl()
+    override fun createPreferenceStore(appName: String): PreferenceStoreNativeImpl = WebPreferenceStoreImpl(appName)
 }

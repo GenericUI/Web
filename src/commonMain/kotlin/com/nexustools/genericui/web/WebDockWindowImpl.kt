@@ -4,9 +4,9 @@ import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.nativeimpl.dock.DockWindowNativeImpl
 
 /**
- * Web implementation of [DockWindowNativeImpl] rendered as a floating draggable DOM utility overlay.
+ * Web implementation of [DockWindowNativeImpl] rendered as a floating `<genericui:panelwindow class="dock-window">` DOM utility overlay.
  */
-class WebDockWindowImpl : WebBaseContainerNativeImpl("div", "dock-window"), DockWindowNativeImpl<WebDomElement> {
+class WebDockWindowImpl : WebBaseContainerNativeImpl("genericui:panelwindow", "dock-window"), DockWindowNativeImpl<WebDomElement> {
     private var closeListener: (() -> Unit)? = null
 
     override fun setTitle(title: String) {

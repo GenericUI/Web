@@ -4,9 +4,9 @@ import com.nexustools.genericui.enums.dock.DockGroupMode
 import com.nexustools.genericui.nativeimpl.dock.DockGroupNativeImpl
 
 /**
- * Web implementation of [DockGroupNativeImpl].
+ * Web implementation of [DockGroupNativeImpl] rendered as `<genericui:dockgroup class="dock-group">`.
  */
-class WebDockGroupImpl : WebBaseContainerNativeImpl("div", "dock-group"), DockGroupNativeImpl<WebDomElement> {
+class WebDockGroupImpl : WebBaseContainerNativeImpl("genericui:dockgroup", "dock-group"), DockGroupNativeImpl<WebDomElement> {
     private var groupMode: DockGroupMode = DockGroupMode.TABBED
     private var activeIndex: Int = 0
 

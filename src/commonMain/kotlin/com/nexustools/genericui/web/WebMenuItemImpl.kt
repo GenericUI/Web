@@ -4,12 +4,20 @@ import com.nexustools.genericui.event.KeyShortcut
 import com.nexustools.genericui.nativeimpl.shell.MenuItemNativeImpl
 
 /**
- * Web implementation of [MenuItemNativeImpl] supporting standard, checkable, and radio menu items.
+ * Web implementation of [MenuItemNativeImpl] supporting standard (`<genericui:menuitem>`),
+ * checkable (`<genericui:checkmenuitem>`), and radio (`<genericui:radiomenuitem>`) menu items.
  */
 class WebMenuItemImpl(
     val checkable: Boolean = false,
     val radio: Boolean = false
-) : WebBaseNativeImpl("button", "dropdown-item"), MenuItemNativeImpl<WebDomElement> {
+) : WebBaseNativeImpl(
+    when {
+        radio -> "genericui:radiomenuitem"
+        checkable -> "genericui:checkmenuitem"
+        else -> "genericui:menuitem"
+    },
+    "dropdown-item"
+), MenuItemNativeImpl<WebDomElement> {
     private var labelText: String = ""
     private var iconName: String? = null
     private var shortcutValue: KeyShortcut? = null

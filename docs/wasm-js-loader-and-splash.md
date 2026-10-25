@@ -42,6 +42,7 @@ flowchart TD
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{TITLE}}</title>
 {{FAVICON_LINK}}
+{{WEB_MANIFEST_AND_PWA_LINKS}}
     <link id="genericui-bootstrap-css" rel="stylesheet" href="{{BOOTSTRAP_CSS_URL}}" integrity="{{BOOTSTRAP_CSS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}">
 {{BOOTSTRAP_ICONS_LINK}}
 {{EXTRA_STYLESHEETS}}
@@ -90,24 +91,137 @@ flowchart TD
 
 When configuring your project in `build.gradle.kts`, **`.svg` vector icons (`image/svg+xml`) are preferred for the Web icon**:
 
-- **Resolution Independence**: An `.svg` icon renders with razor-sharp vector clarity at `256x256` (or custom `iconSizePx`) inside `#genericui-splash-icon` on HiDPI displays and scales cleanly to `16x16` / `32x32` browser tab favicons (`<link id="genericui-favicon" rel="icon" type="image/svg+xml" href="icon.svg">`).
+- **Resolution Independence**: An `.svg` icon renders with razor-sharp vector clarity at `64x64` (or custom `iconSizePx`) inside `#genericui-splash-icon` on HiDPI displays and scales cleanly to `16x16` / `32x32` browser tab favicons (`<link id="genericui-favicon" rel="icon" type="image/svg+xml" href="icon.svg">`).
 - **Fallback Chain**: The GenericUI Gradle plugin resolves the Web icon in order:
   1. `webIcon("icon.svg")` (or `icons(web = "icon.svg")`) — **Preferred**
   2. `commonIcon(...)`
   3. `linuxIcon(...)`
   4. `macIcon(...)`
   5. `windowsIcon(...)`
-  6. If no image icon URL is provided, `WebSplashConfig` renders a 256×256 Bootstrap Icon (`<i id="genericui-splash-icon" class="bi bi-layers-half text-primary mb-3 d-inline-flex align-items-center justify-content-center" style="width: 256px; height: 256px; font-size: 256px; line-height: 1;"></i>`).
+  6. If no image icon URL is provided, `WebSplashConfig` renders a Bootstrap Icon (`<i id="genericui-splash-icon" class="bi bi-layers-half fs-1 text-primary mb-3"></i>`).
 
 ```kotlin
 genericui {
     application {
         appName = "HAEditor Studio"
-        // Preferred: .svg icon used for both #genericui-favicon and #genericui-splash-icon
+        themeColor = "#2A80FF"
+        // Preferred: .svg icon used for #genericui-favicon, 64x64 #genericui-splash-icon, and manifest.webmanifest
         webIcon("src/commonMain/resources/icons/haeditor-logo.svg")
     }
 }
 ```
+
+---
+
+## 3.5. Progressive Web App (PWA) Manifest (`manifest.webmanifest`), Installable WebApp on Android via Chrome (`allowInstallAsWebApp`), & Cross-Backend `themeColor`
+
+Following the W3C / MDN Web App Manifest specification ([`https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest`](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest)), the GenericUI Web target and Gradle plugin support generating a customizable `manifest.webmanifest` file in `build/dist/web` and injecting the HTML `<head>` metadata required to install the application as a standalone WebApp on platforms like **Android via Chrome** (`WebAPK` / *"Install app"* / *"Add to Home screen"*), **iOS Safari**, and **Desktop Chrome/Edge**.
+
+### Configuring `themeColor`, `webManifest`, and `allowInstallAsWebApp` in `build.gradle.kts`
+
+You can configure the Web App Manifest and `allowInstallAsWebApp` via `genericui { application { webManifest { ... } } }`, `genericui { backends { web { ... } } }`, or `genericui { application { webBuild(...) } }`:
+
+```kotlin
+genericui {
+    application {
+        appName = "Episode Caster"
+        baseName = "episode-caster"
+        description = "Stream and cast episodes across Desktop, Mobile, and Web"
+
+        // Cross-backend themeColor propagated to ALL backends that support it:
+        // - Web: <meta id="genericui-theme-color" name="theme-color" content="#2A80FF">,
+        //        "theme_color" in manifest.webmanifest, and --genericui-theme-color CSS var
+        // - Android: <color name="theme_color"> & <color name="colorPrimary"> in res/values/colors.xml,
+        //            plus R.color.theme_color / RC.color.theme_color
+        // - iOS & macOS: Assets.xcassets/AccentColor.colorset and Info.plist GenericUIThemeColor
+        // - Windows & Linux: .rc VERSIONINFO ThemeColor and .desktop X-GenericUI-ThemeColor
+        themeColor = "#2A80FF"
+
+        webIcon("src/commonMain/resources/icons/icon.svg")
+
+        webManifest {
+            // Enables manifest.webmanifest AND injects HTML <head> tags so Chrome on Android
+            // (and iOS/Desktop browsers) can install the app as a standalone WebApp:
+            allowInstallAsWebApp = true
+
+            shortName = "EpisodeCaster"
+            display = "standalone"          // "standalone", "fullscreen", "minimal-ui", or "browser"
+            orientation = "any"             // "any", "portrait", "landscape"
+            backgroundColor = "#0B0E14"
+            startUrl = "./"
+            scope = "./"
+            categories("entertainment", "multimedia")
+
+            // Optional app launcher shortcuts (long-press icon on Android home screen):
+            shortcut(
+                name = "Now Playing",
+                shortName = "Playing",
+                description = "Open active media player",
+                url = "./?tab=player"
+            )
+        }
+    }
+}
+```
+
+### Generated `manifest.webmanifest` Output
+
+When `webManifest { ... }` or `allowInstallAsWebApp = true` is configured, `packageGenericUiWebDistribution` (run by `webDevelopment` and `webProduction`) writes `build/dist/web/manifest.webmanifest`:
+
+```json
+{
+  "name": "Episode Caster",
+  "short_name": "EpisodeCaster",
+  "description": "Stream and cast episodes across Desktop, Mobile, and Web",
+  "lang": "en",
+  "dir": "auto",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#2A80FF",
+  "background_color": "#0B0E14",
+  "prefer_related_applications": false,
+  "categories": ["entertainment", "multimedia"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Now Playing",
+      "short_name": "Playing",
+      "description": "Open active media player",
+      "url": "./?tab=player"
+    }
+  ]
+}
+```
+
+### Injected HTML `<head>` Tags (`{{WEB_MANIFEST_AND_PWA_LINKS}}`)
+
+When `allowInstallAsWebApp = true` is enabled, `index.html` automatically includes:
+- `<link id="genericui-web-manifest" rel="manifest" href="manifest.webmanifest?<sha1>" crossorigin="use-credentials">` (with SHA-1 cache-busting hash)
+- `<meta id="genericui-theme-color" name="theme-color" content="#2A80FF">` (tints Android Chrome address bar / status bar)
+- `<meta id="genericui-mobile-web-app-capable" name="mobile-web-app-capable" content="yes">` (enables standalone full-window mode on Android Chrome)
+- `<meta id="genericui-apple-mobile-web-app-capable" name="apple-mobile-web-app-capable" content="yes">`
+- `<meta id="genericui-apple-mobile-web-app-status-bar-style" name="apple-mobile-web-app-status-bar-style" content="black-translucent">`
+- `<meta id="genericui-application-name" name="application-name" content="EpisodeCaster">`
+- `<meta id="genericui-apple-mobile-web-app-title" name="apple-mobile-web-app-title" content="EpisodeCaster">`
+- `<link id="genericui-apple-touch-icon" rel="apple-touch-icon" href="icon.svg">`
+
+> [!NOTE]
+> Even if `webManifest` / `allowInstallAsWebApp` is not enabled, configuring `themeColor = "#2A80FF"` in `genericui { application { ... } }` still emits `<meta id="genericui-theme-color" name="theme-color" content="#2A80FF">` into `<head>` on the Web target.
 
 ---
 
@@ -142,7 +256,7 @@ val jsFallbackBytes: ByteArray = loadCompiledFile("haeditor-js.js")
 val engine = WebHtmlTemplateEngine(
     splashConfig = WebSplashConfig(
         iconUrl = "assets/haeditor-icon.svg", // .svg preferred!
-        iconSizePx = 256,
+        iconSizePx = 64,
         statusText = "Initializing HAEditor Web Studio...",
         fadeDurationMs = 350
     )
@@ -182,7 +296,7 @@ The code above produces the following `index.html` (notice `<link id="genericui-
 <body class="bg-body text-body m-0 p-0">
     <div id="genericui-splash" class="genericui-splash position-fixed top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-body text-body p-4" style="z-index: 2000; transition: opacity 0.35s ease, visibility 0.35s ease;">
         <div class="d-flex flex-column align-items-center justify-content-center w-100" style="max-width: 420px;">
-            <img id="genericui-splash-icon" src="assets/haeditor-icon.svg" alt="Application Icon" class="genericui-splash-icon mb-3 rounded" width="256" height="256" style="width: 256px; height: 256px; object-fit: contain;">
+            <img id="genericui-splash-icon" src="assets/haeditor-icon.svg" alt="Application Icon" class="genericui-splash-icon mb-3 rounded" width="64" height="64" style="width: 64px; height: 64px; object-fit: contain;">
             <div id="genericui-splash-title" class="fw-semibold fs-5 mb-2 text-center">HAEditor Web Studio</div>
             <div id="genericui-splash-status" class="genericui-splash-status text-body-secondary small mb-3 text-center">Initializing HAEditor Web Studio...</div>
             <div id="genericui-splash-progress" class="progress w-100 mb-2" style="height: 8px;" role="progressbar" aria-label="Application loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">

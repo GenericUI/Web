@@ -11,7 +11,7 @@ data class WebSplashConfig(
     val iconUrl: String? = null,
     val iconBootstrapClass: String? = "bi-layers-half",
     val iconAlt: String = "Application Icon",
-    val iconSizePx: Int = 256,
+    val iconSizePx: Int = 64,
     val statusText: String = "Loading application...",
     val progressBarClass: String = "progress-bar progress-bar-striped progress-bar-animated",
     val fadeDurationMs: Int = 350
@@ -26,7 +26,7 @@ data class WebSplashConfig(
         }
         val trimmedClass = iconBootstrapClass?.trim().orEmpty()
         if (trimmedClass.isNotEmpty()) {
-            return """$indent<i id="genericui-splash-icon" class="bi $trimmedClass text-primary mb-3 d-inline-flex align-items-center justify-content-center" style="width: ${iconSizePx}px; height: ${iconSizePx}px; font-size: ${iconSizePx}px; line-height: 1;" aria-hidden="true"></i>"""
+            return """$indent<i id="genericui-splash-icon" class="bi $trimmedClass fs-1 text-primary mb-3" aria-hidden="true"></i>"""
         }
         return ""
     }

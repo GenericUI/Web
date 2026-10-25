@@ -3,9 +3,9 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.navigation.BottomNavigationBarNativeImpl
 
 /**
- * Web implementation of [BottomNavigationBarNativeImpl].
+ * Web implementation of [BottomNavigationBarNativeImpl] rendered as `<genericui:bottomnavigationbar class="navbar-bottom">`.
  */
-class WebBottomNavigationBarImpl : WebBaseNativeImpl("nav", "navbar-bottom"), BottomNavigationBarNativeImpl<WebDomElement> {
+class WebBottomNavigationBarImpl : WebBaseNativeImpl("genericui:bottomnavigationbar", "navbar-bottom"), BottomNavigationBarNativeImpl<WebDomElement> {
     private var itemsList: List<Triple<String, String, String?>> = emptyList()
     private var selectedId: String? = null
     private var onItemSelectedListener: ((String) -> Unit)? = null

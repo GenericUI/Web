@@ -14,7 +14,7 @@ import kotlin.math.min
  * `[firstVisibleIndex .. lastVisibleIndex]` from scroll offset and viewport height, mounts DOM row
  * elements ONLY for visible nodes, and unmounts DOM row elements as soon as nodes scroll out of view.
  */
-class WebTreeViewImpl : WebBaseNativeImpl("div", "tree-view"), TreeViewNativeImpl<WebDomElement> {
+class WebTreeViewImpl : WebBaseNativeImpl("genericui:treeview", "tree-view"), TreeViewNativeImpl<WebDomElement> {
 
     private data class FlattenedTreeRow(
         val node: TreeNode<*>,

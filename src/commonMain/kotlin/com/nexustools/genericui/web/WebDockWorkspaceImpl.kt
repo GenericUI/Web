@@ -6,9 +6,9 @@ import com.nexustools.genericui.nativeimpl.dock.DockAreaNativeImpl
 import com.nexustools.genericui.nativeimpl.dock.DockWorkspaceNativeImpl
 
 /**
- * Web implementation of [DockWorkspaceNativeImpl].
+ * Web implementation of [DockWorkspaceNativeImpl] rendered as `<genericui:dockworkspace class="dock-workspace">`.
  */
-class WebDockWorkspaceImpl : WebBaseContainerNativeImpl("div", "dock-workspace"), DockWorkspaceNativeImpl<WebDomElement> {
+class WebDockWorkspaceImpl : WebBaseContainerNativeImpl("genericui:dockworkspace", "dock-workspace"), DockWorkspaceNativeImpl<WebDomElement> {
     private var centralImpl: NativeImpl<*>? = null
     private val dockAreas = linkedMapOf<DockPosition, DockAreaNativeImpl<*>>()
 

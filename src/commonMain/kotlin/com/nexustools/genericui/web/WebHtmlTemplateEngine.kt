@@ -18,7 +18,9 @@ import com.nexustools.genericui.enums.ui.ThemeMode
  */
 class WebHtmlTemplateEngine(
     var cdnConfig: WebBootstrapCdnConfig = WebBootstrapCdnConfig(),
-    var splashConfig: WebSplashConfig = WebSplashConfig()
+    var splashConfig: WebSplashConfig = WebSplashConfig(),
+    var manifestConfig: WebAppManifestConfig = WebAppManifestConfig(),
+    var themeColor: String? = null
 ) {
     /**
      * Default HTML5 template matching `src/commonMain/resources/templates/index.template.html`.
@@ -27,7 +29,9 @@ class WebHtmlTemplateEngine(
 
     /**
      * Renders a complete `index.html` document from `index.template.html` with Bootstrap CDN links,
-     * favicon (`webIconUrl`), Bootstrap splash screen (icon + progress bar + error stacktrace box),
+     * favicon (`webIconUrl`), optional W3C Web App Manifest (`manifest.webmanifest`) and Android/iOS
+     * installable WebApp `<meta>`/`<link>` tags (`{{WEB_MANIFEST_AND_PWA_LINKS}}`), `<meta name="theme-color">`,
+     * Bootstrap splash screen (icon + progress bar + error stacktrace box),
      * `<script type="loader-wasm">` and `<script type="loader-js">` descriptor tags (with SHA-1 hashes),
      * and the Wasm-first / JS-IR-fallback `genericui-loader.js` script (with its own SHA-1 hash).
      */
@@ -35,6 +39,7 @@ class WebHtmlTemplateEngine(
         title: String = "GenericUI Web Application",
         lang: String = "en",
         themeMode: ThemeMode = ThemeMode.DARK,
+        themeColor: String? = this.themeColor,
         rootContainerId: String = "genericui-app",
         appBundleScriptUrl: String? = null,
         wasmJsUrl: String? = null,
@@ -45,8 +50,12 @@ class WebHtmlTemplateEngine(
         jsHash: String? = null,
         loaderScriptUrl: String = WebWasmJsLoader.DEFAULT_LOADER_FILENAME,
         loaderHash: String? = null,
+        namespaceXmlUrl: String = WebNamespaceSpec.DEFAULT_NAMESPACE_XML_FILENAME,
+        namespaceXmlHash: String? = null,
         webIconUrl: String? = null,
         splash: WebSplashConfig = splashConfig,
+        manifest: WebAppManifestConfig = manifestConfig,
+        manifestHash: String? = null,
         customTemplate: String = defaultHtmlTemplate
     ): String {
         val bsTheme = when (themeMode) {
@@ -66,6 +75,33 @@ class WebHtmlTemplateEngine(
         val faviconLink = if (!effectiveIconUrl.isNullOrBlank()) {
             val mimeType = inferIconMimeType(effectiveIconUrl)
             """    <link id="genericui-favicon" rel="icon" type="$mimeType" href="$effectiveIconUrl">"""
+        } else {
+            ""
+        }
+
+        val cleanThemeColor = themeColor?.trim()?.takeIf { it.isNotEmpty() }
+        val effectiveManifest = if (cleanThemeColor != null && (manifest.themeColor.isBlank() || manifest.themeColor == "#0d6efd")) {
+            manifest.copy(themeColor = cleanThemeColor)
+        } else {
+            manifest
+        }
+
+        val webManifestAndPwaLinks = if (effectiveManifest.isActive) {
+            val resolvedManifestHash = manifestHash?.trim()?.takeIf { it.isNotEmpty() }
+                ?: WebSha1Hasher.sha1Hex(
+                    effectiveManifest.toManifestJson(
+                        defaultAppName = title,
+                        defaultIconUrl = effectiveIconUrl,
+                        inferMimeType = ::inferIconMimeType
+                    )
+                )
+            effectiveManifest.renderHeadTagsHtml(
+                defaultAppName = title,
+                defaultIconUrl = effectiveIconUrl,
+                manifestHash = resolvedManifestHash
+            )
+        } else if (cleanThemeColor != null) {
+            """    <meta id="genericui-theme-color" name="theme-color" content="$cleanThemeColor">"""
         } else {
             ""
         }
@@ -107,11 +143,19 @@ class WebHtmlTemplateEngine(
         val resolvedLoaderHash = loaderHash?.trim()?.takeIf { it.isNotEmpty() }
             ?: WebWasmJsLoader.defaultLoaderSha1Hash
 
+        val resolvedNamespaceXmlUrl = namespaceXmlUrl.trim().ifEmpty { WebNamespaceSpec.DEFAULT_NAMESPACE_XML_FILENAME }
+        val resolvedNamespaceXmlHash = namespaceXmlHash?.trim()?.takeIf { it.isNotEmpty() }
+            ?: WebNamespaceSpec.defaultNamespaceXmlSha1Hash
+
         return customTemplate
             .replace("{{LANG}}", lang)
             .replace("{{TITLE}}", title)
             .replace("{{THEME_MODE}}", bsTheme)
+            .replace("{{NAMESPACE_XML_URL}}", resolvedNamespaceXmlUrl)
+            .replace("{{NAMESPACE_XML_HASH}}", resolvedNamespaceXmlHash)
+            .replace("{{NAMESPACE_CSS}}", WebNamespaceSpec.DEFAULT_NAMESPACE_CSS)
             .replace("{{FAVICON_LINK}}", faviconLink)
+            .replace("{{WEB_MANIFEST_AND_PWA_LINKS}}", webManifestAndPwaLinks)
             .replace("{{SPLASH_ICON}}", effectiveSplash.renderIconHtml())
             .replace("{{SPLASH_STATUS}}", effectiveSplash.statusText)
             .replace("{{SPLASH_PROGRESS_BAR_CLASS}}", effectiveSplash.progressBarClass)
@@ -137,6 +181,30 @@ class WebHtmlTemplateEngine(
     }
 
     /**
+     * Renders a W3C / MDN Progressive Web App `manifest.webmanifest` JSON string from [manifest].
+     */
+    fun renderManifestJson(
+        title: String = "GenericUI Web Application",
+        webIconUrl: String? = null,
+        themeColor: String? = this.themeColor,
+        manifest: WebAppManifestConfig = manifestConfig
+    ): String {
+        val effectiveIconUrl = webIconUrl?.trim()?.takeIf { it.isNotEmpty() }
+            ?: splashConfig.iconUrl?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanThemeColor = themeColor?.trim()?.takeIf { it.isNotEmpty() }
+        val effectiveManifest = if (cleanThemeColor != null && (manifest.themeColor.isBlank() || manifest.themeColor == "#0d6efd")) {
+            manifest.copy(themeColor = cleanThemeColor)
+        } else {
+            manifest
+        }
+        return effectiveManifest.toManifestJson(
+            defaultAppName = title,
+            defaultIconUrl = effectiveIconUrl,
+            inferMimeType = ::inferIconMimeType
+        )
+    }
+
+    /**
      * Infers the HTML `<link rel="icon" type="...">` MIME type for the given icon URL/path.
      * SVG (`image/svg+xml`) is the preferred icon format for the Web backend.
      */
@@ -158,6 +226,27 @@ class WebHtmlTemplateEngine(
      */
     fun createCdnResourceElements(): List<WebDomElement> {
         val elements = mutableListOf<WebDomElement>()
+
+        elements.add(
+            WebDomElement("link").apply {
+                id = "genericui-namespace-spec"
+                setAttribute("rel", "namespace")
+                setAttribute("data-namespace-prefix", WebNamespaceSpec.NAMESPACE_PREFIX)
+                setAttribute("data-namespace-uri", WebNamespaceSpec.NAMESPACE_URI)
+                setAttribute("type", "application/xml")
+                setAttribute(
+                    "href",
+                    "${WebNamespaceSpec.DEFAULT_NAMESPACE_XML_FILENAME}?${WebNamespaceSpec.defaultNamespaceXmlSha1Hash}"
+                )
+            }
+        )
+
+        elements.add(
+            WebDomElement("style").apply {
+                id = "genericui-namespace-styles"
+                textContent = WebNamespaceSpec.DEFAULT_NAMESPACE_CSS
+            }
+        )
 
         elements.add(
             WebDomElement("link").apply {
@@ -238,12 +327,15 @@ class WebHtmlTemplateEngine(
 
     companion object {
         const val DEFAULT_INDEX_TEMPLATE: String = """<!DOCTYPE html>
-<html lang="{{LANG}}" data-bs-theme="{{THEME_MODE}}">
+<html lang="{{LANG}}" xmlns:genericui="https://nexustools.com/ns/genericui" data-bs-theme="{{THEME_MODE}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{TITLE}}</title>
+    <link id="genericui-namespace-spec" rel="namespace" data-namespace-prefix="genericui" data-namespace-uri="https://nexustools.com/ns/genericui" type="application/xml" href="{{NAMESPACE_XML_URL}}?{{NAMESPACE_XML_HASH}}">
+    <style id="genericui-namespace-styles">{{NAMESPACE_CSS}}</style>
 {{FAVICON_LINK}}
+{{WEB_MANIFEST_AND_PWA_LINKS}}
     <link id="genericui-bootstrap-css" rel="stylesheet" href="{{BOOTSTRAP_CSS_URL}}" integrity="{{BOOTSTRAP_CSS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}">
 {{BOOTSTRAP_ICONS_LINK}}
 {{EXTRA_STYLESHEETS}}

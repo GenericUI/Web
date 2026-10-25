@@ -7,11 +7,11 @@ import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 
 /**
- * Web implementation of [TabContainerNativeImpl] using Bootstrap `.nav-tabs` + `.tab-pane.fade`,
- * mounting each [WebTabImpl] into the `<ul class="nav nav-tabs">` header strip and each content pane
- * into `<div class="tab-content">`.
+ * Web implementation of [TabContainerNativeImpl] rendered as `<genericui:tabcontainer class="tab-container">`
+ * using Bootstrap `.nav-tabs` + `.tab-pane.fade`, mounting each [WebTabImpl] into the `<ul class="nav nav-tabs">`
+ * header strip and each content pane into `<div class="tab-content">`.
  */
-class WebTabContainerImpl : WebBaseContainerNativeImpl("div", "tab-container"), TabContainerNativeImpl<WebDomElement> {
+class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer", "tab-container"), TabContainerNativeImpl<WebDomElement> {
     override val supportsNativeFadeTransition: Boolean = true
 
     val navListElement: WebDomElement = WebDomElement("ul").apply {

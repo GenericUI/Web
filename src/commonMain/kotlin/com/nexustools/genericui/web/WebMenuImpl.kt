@@ -3,9 +3,9 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.shell.MenuNativeImpl
 
 /**
- * Web implementation of [MenuNativeImpl].
+ * Web implementation of [MenuNativeImpl] rendered as `<genericui:menu class="dropdown">`.
  */
-class WebMenuImpl : WebBaseContainerNativeImpl("div", "dropdown"), MenuNativeImpl<WebDomElement> {
+class WebMenuImpl : WebBaseContainerNativeImpl("genericui:menu", "dropdown"), MenuNativeImpl<WebDomElement> {
     private var labelText: String = ""
 
     override fun setLabel(label: String) {

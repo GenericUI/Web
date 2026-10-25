@@ -100,6 +100,12 @@ private external fun wasmRegisterWindowResize(onResize: (Int, Int) -> Unit)
     "}")
 private external fun wasmSchedulePostLayout(block: () -> Unit)
 
+@JsFun("(delayMs, block) => { " +
+    "if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') { " +
+    "  window.setTimeout(() => block(), delayMs); return true; " +
+    "} return false; }")
+private external fun wasmScheduleTimeout(delayMs: Int, block: () -> Unit): Boolean
+
 @JsFun("(url, method, contentType, hasContentType, body, hasBody, onSuccess, onError) => { " +
     "if (typeof XMLHttpRequest === 'undefined') { onError('XMLHttpRequest is not available'); return; } " +
     "const req = new XMLHttpRequest(); " +
@@ -211,6 +217,32 @@ private external fun wasmAlert(msg: String)
 
 @JsFun("(msg) => { return typeof window.confirm === 'function' ? !!window.confirm(msg) : true; }")
 private external fun wasmConfirm(msg: String): Boolean
+
+@JsFun("() => { try { return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined' && window.localStorage !== null; } catch (e) { return false; } }")
+private external fun wasmHasLocalStorage(): Boolean
+
+@JsFun("(key) => { try { return window.localStorage.getItem(key); } catch (e) { return null; } }")
+private external fun wasmLocalStorageGetItem(key: String): String?
+
+@JsFun("(key, val) => { try { window.localStorage.setItem(key, val); return true; } catch (e) { return false; } }")
+private external fun wasmLocalStorageSetItem(key: String, value: String): Boolean
+
+@JsFun("(key) => { try { window.localStorage.removeItem(key); return true; } catch (e) { return false; } }")
+private external fun wasmLocalStorageRemoveItem(key: String): Boolean
+
+@JsFun("() => { try { window.localStorage.clear(); return true; } catch (e) { return false; } }")
+private external fun wasmLocalStorageClear(): Boolean
+
+@JsFun("() => { try { return window.localStorage.length || 0; } catch (e) { return 0; } }")
+private external fun wasmLocalStorageLength(): Int
+
+@JsFun("(idx) => { try { return window.localStorage.key(idx); } catch (e) { return null; } }")
+private external fun wasmLocalStorageKeyAt(idx: Int): String?
+
+@JsFun("(cb) => { if (typeof window !== 'undefined') { window.addEventListener('storage', (ev) => { cb(ev.key || '', ev.key !== null && ev.key !== undefined, ev.newValue || '', ev.newValue !== null && ev.newValue !== undefined); }); } }")
+private external fun wasmRegisterStorageListener(
+    cb: (String, Boolean, String, Boolean) -> Unit
+)
 
 actual object WebBrowserDomBridge {
     actual val isBrowserEnvironment: Boolean
@@ -431,6 +463,9 @@ actual object WebBrowserDomBridge {
         wasmSchedulePostLayout(block)
     }
 
+    actual fun scheduleTimeout(delayMs: Int, block: () -> Unit): Boolean =
+        if (isBrowserEnvironment) wasmScheduleTimeout(delayMs.coerceAtLeast(0), block) else false
+
     actual fun showAlert(message: String) {
         if (isBrowserEnvironment) wasmAlert(message)
     }
@@ -462,5 +497,41 @@ actual object WebBrowserDomBridge {
             onSuccess = onSuccess,
             onError = onError
         )
+    }
+
+    actual val hasLocalStorage: Boolean
+        get() = isBrowserEnvironment && wasmHasLocalStorage()
+
+    actual fun localStorageGetItem(key: String): String? =
+        if (hasLocalStorage) wasmLocalStorageGetItem(key) else null
+
+    actual fun localStorageSetItem(key: String, value: String): Boolean =
+        if (hasLocalStorage) wasmLocalStorageSetItem(key, value) else false
+
+    actual fun localStorageRemoveItem(key: String): Boolean =
+        if (hasLocalStorage) wasmLocalStorageRemoveItem(key) else false
+
+    actual fun localStorageClear(): Boolean =
+        if (hasLocalStorage) wasmLocalStorageClear() else false
+
+    actual fun localStorageKeys(): List<String> {
+        if (!hasLocalStorage) return emptyList()
+        val len = wasmLocalStorageLength()
+        val out = ArrayList<String>(len)
+        for (i in 0 until len) {
+            val k = wasmLocalStorageKeyAt(i)
+            if (k != null) out.add(k)
+        }
+        return out
+    }
+
+    actual fun registerStorageListener(onStorageChanged: (key: String?, newValue: String?) -> Unit) {
+        if (!isBrowserEnvironment) return
+        wasmRegisterStorageListener { key, hasKey, newValue, hasNewValue ->
+            onStorageChanged(
+                if (hasKey) key else null,
+                if (hasNewValue) newValue else null
+            )
+        }
     }
 }

@@ -75,7 +75,9 @@ class WebDomElement(val tagName: String) {
 
         override fun put(key: String, value: String): String? {
             val prev = backingStyle.put(key, value)
-            WebBrowserDomBridge.syncStyle(this@WebDomElement, key, value)
+            if (prev != value) {
+                WebBrowserDomBridge.syncStyle(this@WebDomElement, key, value)
+            }
             return prev
         }
 
@@ -88,6 +90,14 @@ class WebDomElement(val tagName: String) {
         override fun clear() {
             backingStyle.clear()
             WebBrowserDomBridge.clearStyles(this@WebDomElement)
+        }
+    }
+
+    fun setStyle(key: String, value: String?) {
+        if (value == null) {
+            style.remove(key)
+        } else {
+            style[key] = value
         }
     }
 

@@ -41,6 +41,7 @@ expect object WebBrowserDomBridge {
     fun triggerClick(element: WebDomElement): Boolean
     fun registerWindowResize(onResize: (Int, Int) -> Unit)
     fun schedulePostLayoutPass(block: () -> Unit)
+    fun scheduleTimeout(delayMs: Int, block: () -> Unit): Boolean
 
     fun showAlert(message: String)
     fun showConfirm(message: String): Boolean
@@ -54,4 +55,12 @@ expect object WebBrowserDomBridge {
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     )
+
+    val hasLocalStorage: Boolean
+    fun localStorageGetItem(key: String): String?
+    fun localStorageSetItem(key: String, value: String): Boolean
+    fun localStorageRemoveItem(key: String): Boolean
+    fun localStorageClear(): Boolean
+    fun localStorageKeys(): List<String>
+    fun registerStorageListener(onStorageChanged: (key: String?, newValue: String?) -> Unit)
 }

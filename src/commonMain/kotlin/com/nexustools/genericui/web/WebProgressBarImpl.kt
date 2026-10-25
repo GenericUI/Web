@@ -3,9 +3,9 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
 
 /**
- * Web implementation of [ProgressBarNativeImpl] rendered as `<div class="progress">`.
+ * Web implementation of [ProgressBarNativeImpl] rendered as `<genericui:progressbar class="progress">`.
  */
-class WebProgressBarImpl : WebBaseNativeImpl("div", "progress"), ProgressBarNativeImpl<WebDomElement> {
+class WebProgressBarImpl : WebBaseNativeImpl("genericui:progressbar", "progress"), ProgressBarNativeImpl<WebDomElement> {
     private var progressValue: Float = 0f
     private var indeterminateFlag: Boolean = false
 

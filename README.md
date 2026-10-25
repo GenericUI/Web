@@ -11,7 +11,8 @@ The **Web Submodule (`:web`)** of **GenericUI** (`com.nexustools.genericui.web.*
 | Functional Area | Key Classes / Resources | Responsibility | Detailed Guide |
 | :--- | :--- | :--- | :--- |
 | **Dual Wasm (`wasmJs`) + JS IR (`js`) Compilation & Loader** | `WebWasmJsLoader`, `genericui-loader.js`, `index.template.html`, `WebHtmlTemplateEngine`, `WebSha1Hasher` | Compiles both `wasmJs` and `js(IR)` targets; emits `<script type="loader-wasm" src="{{WASM_URL}}?{{WASM_HASH}}">`, `<script type="loader-js" src="{{JS_URL}}?{{JS_HASH}}">`, and `<script id="genericui-loader-script" src="{{LOADER_JS_URL}}?{{LOADER_JS_HASH}}" defer>` (with **no** `{{APP_BUNDLE_SCRIPT}}` and **no** hash on `{{BOOTSTRAP_JS_URL}}`); probes WasmGC support and loads Wasm first with automatic JS IR fallback. | [**`docs/wasm-js-loader-and-splash.md`**](./docs/wasm-js-loader-and-splash.md) |
-| **Bootstrap 5 Splash Screen, Progress Bar, Error Stacktrace, & `.svg` Web Icon** | `WebSplashConfig`, `WebHtmlTemplateEngine`, `webIcon("icon.svg")` | Renders `#genericui-splash` with the project's icon (`#genericui-splash-icon`, **`.svg` preferred** for both splash screen and `<link id="genericui-favicon">` favicon), streaming download progress bar (`#genericui-splash-progress-bar`), smooth fade-out on startup, and runtime error stacktrace alert (`#genericui-splash-error` & `#genericui-splash-error-stack`). | [**`docs/wasm-js-loader-and-splash.md`**](./docs/wasm-js-loader-and-splash.md) |
+| **Bootstrap 5 Splash Screen, Progress Bar, Error Stacktrace, & `.svg` Web Icon** | `WebSplashConfig`, `WebHtmlTemplateEngine`, `webIcon("icon.svg")` | Renders `#genericui-splash` with the project's `64x64` icon (`#genericui-splash-icon`, **`.svg` preferred** for both splash screen and `<link id="genericui-favicon">` favicon), streaming download progress bar (`#genericui-splash-progress-bar`), smooth fade-out on startup, and runtime error stacktrace alert (`#genericui-splash-error` & `#genericui-splash-error-stack`). | [**`docs/wasm-js-loader-and-splash.md`**](./docs/wasm-js-loader-and-splash.md) |
+| **Progressive Web App (PWA) Manifest (`manifest.webmanifest`), Android/Chrome Installable WebApp (`allowInstallAsWebApp`), & `themeColor`** | `WebAppManifestConfig`, `WebAppManifestIcon`, `WebAppManifestShortcut`, `GenericUiWebManifestConfig`, `GenericUiWebDistributionTask` | Generates W3C / MDN `manifest.webmanifest` (`https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest`), propagates `application { themeColor = "#..." }` to `<meta name="theme-color">` and `theme_color`, and injects installable WebApp `<head>` tags (`allowInstallAsWebApp = true`) so Chrome on Android, iOS Safari, and Desktop browsers can install the app as a standalone WebApp. | [**`docs/wasm-js-loader-and-splash.md`**](./docs/wasm-js-loader-and-splash.md) |
 | **Native HTML5 DOM Widgets & Dual-Mode Bootstrap 5 Styling** | `WebNativeFactory`, `WebBaseNativeImpl`, `WebBaseContainerNativeImpl`, `WebDomElement`, `WebBrowserDomBridge`, `WebBootstrapCdnConfig` | Maps GenericUI widgets directly to semantic HTML5 DOM elements (`<button>`, `<input>`, `<select>`, `<nav>`, `<dialog>`, `<table>`), synchronizes Bootstrap 5 CSS classes (`classList`) with compiled SASS/CSS `ComputedStyle` rules, and mounts live DOM bridges in both `wasmJsMain` and `jsMain`. | [**`docs/web-backend.md`**](./docs/web-backend.md) |
 | **Invisible `<input type="file">` File & Folder Picker** | `WebFileBrowserDialogImpl` | Implements `FileBrowserDialogNativeImpl` using a completely invisible, un-interactable `<input type="file" tabindex="-1" aria-hidden="true">` with `webkitdirectory` / `directory` (for `SELECT_FOLDER`), `multiple` (for `OPEN_MULTIPLE_FILES`), and `accept` MIME/extension filtering. | [**`docs/web-backend.md`**](./docs/web-backend.md) |
 | **True DOM-Windowed Lazy Views** | `WebLazyListImpl`, `WebLazyGridImpl`, `WebTreeViewImpl` | Dynamically mounts DOM elements **only** for items inside the visible scroll window `[firstVisibleIndex .. lastVisibleIndex]` using top/bottom scroll spacers (`lazy-list-spacer-start` / `lazy-list-spacer-end`), unmounting offscreen DOM nodes immediately. | [**`docs/web-backend.md`**](./docs/web-backend.md) |
@@ -59,12 +60,30 @@ genericui {
     application {
         appName = "HAEditor Web Studio"
         appId = "com.nexustools.haeditor.web"
-        version = "2.4.0"
+        appVersion = "2.4.0"
+
+        // Cross-backend theme color applied across Web (<meta name="theme-color">, manifest.webmanifest,
+        // --genericui-theme-color), Android (colors.xml theme_color / colorPrimary), iOS/macOS
+        // (AccentColor.colorset), Windows (.rc ThemeColor), and Linux (.desktop X-GenericUI-ThemeColor):
+        themeColor = "#2A80FF"
 
         // .svg vector icons (image/svg+xml) are preferred for the Web icon!
-        // Used automatically for BOTH the <link id="genericui-favicon"> tag in <head>
-        // and the #genericui-splash-icon <img> inside the Bootstrap splash screen:
+        // Used automatically for the <link id="genericui-favicon"> tag in <head>,
+        // the 64x64 #genericui-splash-icon <img> inside the Bootstrap splash screen,
+        // and the manifest.webmanifest icons:
         webIcon("src/commonMain/resources/icons/icon.svg")
+
+        // Optional: Generate W3C / MDN manifest.webmanifest and enable standalone WebApp
+        // installation on Android via Chrome ("Add to Home screen" / WebAPK):
+        webManifest {
+            allowInstallAsWebApp = true
+            shortName = "HAEditor"
+            description = "Hybrid Vector & Raster Studio"
+            display = "standalone"
+            orientation = "any"
+            backgroundColor = "#0B0E14"
+            categories("graphics", "productivity")
+        }
 
         // Or configure all platform icons together:
         icons(

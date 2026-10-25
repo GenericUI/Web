@@ -4,9 +4,9 @@ import com.nexustools.genericui.enums.ui.Orientation
 import com.nexustools.genericui.nativeimpl.shell.SplitPaneNativeImpl
 
 /**
- * Web implementation of [SplitPaneNativeImpl] using CSS flex/grid split sizing.
+ * Web implementation of [SplitPaneNativeImpl] rendered as `<genericui:splitpane class="split-pane">`.
  */
-class WebSplitPaneImpl : WebBaseContainerNativeImpl("div", "split-pane"), SplitPaneNativeImpl<WebDomElement> {
+class WebSplitPaneImpl : WebBaseContainerNativeImpl("genericui:splitpane", "split-pane"), SplitPaneNativeImpl<WebDomElement> {
     private var orientation: Orientation = Orientation.HORIZONTAL
     private var dividerRatio: Float = 0.5f
 

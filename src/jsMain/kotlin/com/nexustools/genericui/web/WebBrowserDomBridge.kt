@@ -418,6 +418,18 @@ actual object WebBrowserDomBridge {
         }
     }
 
+    actual fun scheduleTimeout(delayMs: Int, block: () -> Unit): Boolean {
+        if (!isBrowserEnvironment) return false
+        val win: dynamic = js("window")
+        if (js("typeof win.setTimeout === 'function'") as Boolean) {
+            win.setTimeout({
+                block()
+            }, delayMs.coerceAtLeast(0))
+            return true
+        }
+        return false
+    }
+
     actual fun showAlert(message: String) {
         if (!isBrowserEnvironment) return
         val win: dynamic = js("window")
@@ -473,5 +485,67 @@ actual object WebBrowserDomBridge {
         } else {
             request.send()
         }
+    }
+
+    actual val hasLocalStorage: Boolean
+        get() = isBrowserEnvironment && (js("typeof window.localStorage !== 'undefined' && window.localStorage !== null") as Boolean)
+
+    actual fun localStorageGetItem(key: String): String? {
+        if (!hasLocalStorage) return null
+        return runCatching {
+            val ls: dynamic = js("window.localStorage")
+            ls.getItem(key) as? String
+        }.getOrNull()
+    }
+
+    actual fun localStorageSetItem(key: String, value: String): Boolean {
+        if (!hasLocalStorage) return false
+        return runCatching {
+            val ls: dynamic = js("window.localStorage")
+            ls.setItem(key, value)
+            true
+        }.getOrDefault(false)
+    }
+
+    actual fun localStorageRemoveItem(key: String): Boolean {
+        if (!hasLocalStorage) return false
+        return runCatching {
+            val ls: dynamic = js("window.localStorage")
+            ls.removeItem(key)
+            true
+        }.getOrDefault(false)
+    }
+
+    actual fun localStorageClear(): Boolean {
+        if (!hasLocalStorage) return false
+        return runCatching {
+            val ls: dynamic = js("window.localStorage")
+            ls.clear()
+            true
+        }.getOrDefault(false)
+    }
+
+    actual fun localStorageKeys(): List<String> {
+        if (!hasLocalStorage) return emptyList()
+        return runCatching {
+            val ls: dynamic = js("window.localStorage")
+            val len = (ls.length as? Number)?.toInt() ?: 0
+            val out = ArrayList<String>(len)
+            for (i in 0 until len) {
+                val k = ls.key(i) as? String
+                if (k != null) out.add(k)
+            }
+            out
+        }.getOrDefault(emptyList())
+    }
+
+    actual fun registerStorageListener(onStorageChanged: (key: String?, newValue: String?) -> Unit) {
+        if (!isBrowserEnvironment) return
+        val win: dynamic = js("window")
+        win.addEventListener("storage", { ev: dynamic ->
+            val k = ev.key as? String
+            val nv = ev.newValue as? String
+            onStorageChanged(k, nv)
+        })
     }
 }

@@ -3,9 +3,9 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 
 /**
- * Web implementation of [SpinnerNativeImpl] using Bootstrap `.spinner-border` or `.spinner-grow`.
+ * Web implementation of [SpinnerNativeImpl] rendered as `<genericui:spinner class="spinner-border">` (or `.spinner-grow`).
  */
-class WebSpinnerImpl : WebBaseNativeImpl("div", "spinner-border"), SpinnerNativeImpl<WebDomElement> {
+class WebSpinnerImpl : WebBaseNativeImpl("genericui:spinner", "spinner-border"), SpinnerNativeImpl<WebDomElement> {
     override fun setGrowStyle(grow: Boolean) {
         if (grow) {
             nativeWidget.classList.remove("spinner-border")

@@ -27,8 +27,11 @@ open class WebBaseNativeImpl(
 ) : NativeImpl<WebDomElement> {
 
     override val nativeWidget: WebDomElement = WebDomElement(tagName).also {
-        if (componentClassPrefix.isNotEmpty()) {
-            it.classList.add(componentClassPrefix)
+        val prefix = componentClassPrefix.trim()
+        if (prefix.isNotEmpty()) {
+            prefix.split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach { token ->
+                it.classList.add(token)
+            }
         }
     }
 
@@ -269,33 +272,65 @@ open class WebBaseNativeImpl(
     }
 
     override fun applyComputedStyle(style: ComputedStyle) {
-        for (oldKey in appliedComputedStyleKeys) {
+        val newProps = linkedMapOf<String, String>()
+        fun putProp(key: String, value: String) {
+            newProps[key] = value
+        }
+
+        style.rawDeclarations.forEach { (k, v) -> putProp(k, v) }
+
+        style.backgroundColor?.let { putProp("background-color", it.toCssRgba()) }
+        style.backgroundGradient?.let { putProp("background-image", it.toCssString()) }
+        style.textColor?.let { putProp("color", it.toCssRgba()) }
+        style.borderColor?.let { putProp("border-color", it.toCssRgba()) }
+        style.borderWidthPx?.let { putProp("border-width", "${it}px") }
+        style.borderStyle?.let { putProp("border-style", it) }
+        style.borderRadiusPx?.let { putProp("border-radius", "${it}px") }
+        style.borderRadiusPercent?.let { putProp("border-radius", "${it}%") }
+        style.fontSizePx?.let { putProp("font-size", "${it}px") }
+        style.fontSizePercent?.let { putProp("font-size", "${it}%") }
+        style.fontFamily?.let { putProp("font-family", it) }
+        style.fontWeightNumeric?.let { putProp("font-weight", it.toString()) }
+        style.textAlign?.let { putProp("text-align", it) }
+        style.backgroundImageUrl?.let { putProp("background-image", "url('$it')") }
+        style.backgroundRepeat?.let { putProp("background-repeat", it) }
+        style.backgroundAttachment?.let { putProp("background-attachment", it) }
+        style.backgroundPosition?.let { putProp("background-position", it) }
+        style.backgroundSize?.let { putProp("background-size", it) }
+        style.textShadow?.let { putProp("text-shadow", it) }
+        style.boxShadow?.let { putProp("box-shadow", it) }
+        style.display?.let { putProp("display", it) }
+        style.position?.let { putProp("position", it) }
+        style.overflow?.let { putProp("overflow", it) }
+        style.width?.let { putProp("width", it) }
+        style.height?.let { putProp("height", it) }
+        style.minWidth?.let { putProp("min-width", it) }
+        style.minHeight?.let { putProp("min-height", it) }
+        style.maxWidth?.let { putProp("max-width", it) }
+        style.maxHeight?.let { putProp("max-height", it) }
+        style.top?.let { putProp("top", it) }
+        style.right?.let { putProp("right", it) }
+        style.bottom?.let { putProp("bottom", it) }
+        style.left?.let { putProp("left", it) }
+        style.zIndex?.let { putProp("z-index", it.toString()) }
+        style.transform?.let { putProp("transform", it) }
+        style.transition?.let { putProp("transition", it) }
+        style.cursor?.let { putProp("cursor", it) }
+        if (style.opacity < 1.0f || "opacity" in style.rawDeclarations) {
+            putProp("opacity", style.opacity.toString())
+        }
+        if (!style.pointerEventsEnabled) {
+            putProp("pointer-events", "none")
+        }
+
+        val removedKeys = appliedComputedStyleKeys.filter { it !in newProps }
+        for (oldKey in removedKeys) {
+            appliedComputedStyleKeys.remove(oldKey)
             nativeWidget.style.remove(oldKey)
         }
-        appliedComputedStyleKeys.clear()
-
-        style.backgroundColor?.let { setComputedStyleProp("background-color", it.toCssRgba()) }
-        style.backgroundGradient?.let { setComputedStyleProp("background-image", it.toCssString()) }
-        style.textColor?.let { setComputedStyleProp("color", it.toCssRgba()) }
-        style.borderColor?.let { setComputedStyleProp("border-color", it.toCssRgba()) }
-        style.borderWidthPx?.let { setComputedStyleProp("border-width", "${it}px") }
-        style.borderRadiusPx?.let { setComputedStyleProp("border-radius", "${it}px") }
-        style.fontSizePx?.let { setComputedStyleProp("font-size", "${it}px") }
-        style.fontFamily?.let { setComputedStyleProp("font-family", it) }
-        style.fontWeightNumeric?.let { setComputedStyleProp("font-weight", it.toString()) }
-        style.backgroundImageUrl?.let { setComputedStyleProp("background-image", "url('$it')") }
-        style.textShadow?.let { setComputedStyleProp("text-shadow", it) }
-        style.boxShadow?.let { setComputedStyleProp("box-shadow", it) }
-        style.transform?.let { setComputedStyleProp("transform", it) }
-        style.transition?.let { setComputedStyleProp("transition", it) }
-        style.zIndex?.let { setComputedStyleProp("z-index", it.toString()) }
-        style.left?.let { setComputedStyleProp("left", it) }
-        style.top?.let { setComputedStyleProp("top", it) }
-        style.cursor?.let { setComputedStyleProp("cursor", it) }
-        if (!style.pointerEventsEnabled) {
-            setComputedStyleProp("pointer-events", "none")
+        for ((k, v) in newProps) {
+            setComputedStyleProp(k, v)
         }
-        style.rawDeclarations.forEach { (k, v) -> setComputedStyleProp(k, v) }
 
         preferredSizeValue?.let { size ->
             if (size.width > 0) nativeWidget.style["width"] = "${size.width}px"
@@ -333,6 +368,9 @@ open class WebBaseNativeImpl(
         nativeWidget.style[property] = toValue
         return true
     }
+
+    override fun scheduleDelayed(delayMs: Int, action: () -> Unit): Boolean =
+        WebBrowserDomBridge.scheduleTimeout(delayMs, action)
 
     override fun setOnClick(listener: (() -> Unit)?) { onClickCallback = listener }
     override fun setOnDoubleClick(listener: (() -> Unit)?) { onDoubleClickCallback = listener }

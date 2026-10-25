@@ -3,9 +3,9 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.surface.CollapseNativeImpl
 
 /**
- * Web implementation of [CollapseNativeImpl] using Bootstrap `.collapse` / `.collapse.show`.
+ * Web implementation of [CollapseNativeImpl] rendered as `<genericui:collapsiblepanel class="collapse">`.
  */
-class WebCollapseImpl : WebBaseContainerNativeImpl("div", "collapse"), CollapseNativeImpl<WebDomElement> {
+class WebCollapseImpl : WebBaseContainerNativeImpl("genericui:collapsiblepanel", "collapse"), CollapseNativeImpl<WebDomElement> {
     private var expandedState: Boolean = false
     private var onExpandedChangedListener: ((Boolean) -> Unit)? = null
 

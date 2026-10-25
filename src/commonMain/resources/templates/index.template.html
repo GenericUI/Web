@@ -1,10 +1,13 @@
 <!DOCTYPE html>
-<html lang="{{LANG}}" data-bs-theme="{{THEME_MODE}}">
+<html lang="{{LANG}}" xmlns:genericui="https://nexustools.com/ns/genericui" data-bs-theme="{{THEME_MODE}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{TITLE}}</title>
+    <link id="genericui-namespace-spec" rel="namespace" data-namespace-prefix="genericui" data-namespace-uri="https://nexustools.com/ns/genericui" type="application/xml" href="{{NAMESPACE_XML_URL}}?{{NAMESPACE_XML_HASH}}">
+    <style id="genericui-namespace-styles">{{NAMESPACE_CSS}}</style>
 {{FAVICON_LINK}}
+{{WEB_MANIFEST_AND_PWA_LINKS}}
     <link id="genericui-bootstrap-css" rel="stylesheet" href="{{BOOTSTRAP_CSS_URL}}" integrity="{{BOOTSTRAP_CSS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}">
 {{BOOTSTRAP_ICONS_LINK}}
 {{EXTRA_STYLESHEETS}}

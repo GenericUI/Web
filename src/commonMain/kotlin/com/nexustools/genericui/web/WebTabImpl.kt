@@ -4,13 +4,16 @@ import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 
 /**
- * Web implementation of [TabNativeImpl], rendering a Bootstrap `<li class="nav-item" role="presentation">`
- * containing a `<button class="nav-link" role="tab">` with title, optional badge, optional `.btn-close`
- * close button, or an embedded custom [WebDomElement].
+ * Web implementation of [TabNativeImpl], rendering `<genericui:tab class="nav-item" role="presentation">`
+ * (or `<genericui:closeabletab>` when [initialClosable] is `true`) containing a `<button class="nav-link" role="tab">`
+ * with title, optional badge, optional `.btn-close` close button, or an embedded custom [WebDomElement].
  */
 class WebTabImpl(
     initialClosable: Boolean = false
-) : WebBaseContainerNativeImpl("li", "nav-item"), TabNativeImpl<WebDomElement> {
+) : WebBaseContainerNativeImpl(
+    if (initialClosable) "genericui:closeabletab" else "genericui:tab",
+    "nav-item"
+), TabNativeImpl<WebDomElement> {
 
     val buttonElement: WebDomElement = WebDomElement("button").apply {
         classList.add("nav-link")

@@ -3,6 +3,6 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.shell.MenuBarNativeImpl
 
 /**
- * Web implementation of [MenuBarNativeImpl] rendered as a Bootstrap `.navbar-nav` menu bar row.
+ * Web implementation of [MenuBarNativeImpl] rendered as `<genericui:menubar class="menubar">`.
  */
-class WebMenuBarImpl : WebBaseContainerNativeImpl("nav", "menubar"), MenuBarNativeImpl<WebDomElement>
+class WebMenuBarImpl : WebBaseContainerNativeImpl("genericui:menubar", "menubar"), MenuBarNativeImpl<WebDomElement>

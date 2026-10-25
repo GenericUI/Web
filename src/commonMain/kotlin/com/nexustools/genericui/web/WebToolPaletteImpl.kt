@@ -5,9 +5,9 @@ import com.nexustools.genericui.nativeimpl.dock.ToolPaletteNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 
 /**
- * Web implementation of [ToolPaletteNativeImpl].
+ * Web implementation of [ToolPaletteNativeImpl] rendered as `<genericui:toolpalette class="tool-palette">`.
  */
-class WebToolPaletteImpl : WebBaseContainerNativeImpl("div", "tool-palette"), ToolPaletteNativeImpl<WebDomElement> {
+class WebToolPaletteImpl : WebBaseContainerNativeImpl("genericui:toolpalette", "tool-palette"), ToolPaletteNativeImpl<WebDomElement> {
     private var columnsCount: Int = 2
     private var toolsList: List<ToolPaletteItem> = emptyList()
     private var activeId: String? = null

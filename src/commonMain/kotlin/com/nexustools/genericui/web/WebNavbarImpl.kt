@@ -3,9 +3,9 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.navigation.NavbarNativeImpl
 
 /**
- * Web implementation of [NavbarNativeImpl] rendered as `<nav class="navbar">`.
+ * Web implementation of [NavbarNativeImpl] rendered as `<genericui:navbar class="navbar">`.
  */
-class WebNavbarImpl : WebBaseContainerNativeImpl("nav", "navbar"), NavbarNativeImpl<WebDomElement> {
+class WebNavbarImpl : WebBaseContainerNativeImpl("genericui:navbar", "navbar"), NavbarNativeImpl<WebDomElement> {
     private var brandTitleText: String = ""
 
     override fun setBrandTitle(title: String) {

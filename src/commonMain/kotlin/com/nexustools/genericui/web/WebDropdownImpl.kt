@@ -3,9 +3,9 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
 
 /**
- * Web implementation of [DropdownNativeImpl].
+ * Web implementation of [DropdownNativeImpl] rendered as `<genericui:dropdown class="dropdown">`.
  */
-class WebDropdownImpl : WebBaseContainerNativeImpl("div", "dropdown"), DropdownNativeImpl<WebDomElement> {
+class WebDropdownImpl : WebBaseContainerNativeImpl("genericui:dropdown", "dropdown"), DropdownNativeImpl<WebDomElement> {
     private var onItemSelectedListener: ((String) -> Unit)? = null
 
     override fun setLabel(label: String) {

@@ -5,9 +5,9 @@ import com.nexustools.genericui.enums.ui.Placement
 import com.nexustools.genericui.nativeimpl.overlay.PopoverNativeImpl
 
 /**
- * Web implementation of [PopoverNativeImpl].
+ * Web implementation of [PopoverNativeImpl] rendered as `<genericui:popover class="popover">`.
  */
-class WebPopoverImpl : WebBaseContainerNativeImpl("div", "popover"), PopoverNativeImpl<WebDomElement> {
+class WebPopoverImpl : WebBaseContainerNativeImpl("genericui:popover", "popover"), PopoverNativeImpl<WebDomElement> {
     private var placement: Placement = Placement.BOTTOM
 
     override fun setTitle(title: String?) {

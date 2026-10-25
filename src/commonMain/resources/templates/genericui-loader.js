@@ -219,13 +219,20 @@
         splash.style.opacity = "0";
         splash.style.pointerEvents = "none";
 
-        if (typeof global.setTimeout === "function") {
-            global.setTimeout(function () {
-                if (!state.hasError && splash) {
-                    splash.classList.add("d-none");
-                    splash.style.visibility = "hidden";
+        function removeSplashNode() {
+            if (!state.hasError && splash) {
+                if (typeof splash.remove === "function") {
+                    splash.remove();
+                } else if (splash.parentNode) {
+                    splash.parentNode.removeChild(splash);
                 }
-            }, duration + 20);
+            }
+        }
+
+        if (typeof global.setTimeout === "function") {
+            global.setTimeout(removeSplashNode, duration + 20);
+        } else {
+            removeSplashNode();
         }
     }
 

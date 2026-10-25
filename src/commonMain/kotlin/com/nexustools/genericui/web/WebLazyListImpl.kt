@@ -16,7 +16,7 @@ import kotlin.math.min
  * spacer elements to preserve total scroll height), and unmounts/unloads DOM nodes immediately when items
  * scroll out of view.
  */
-class WebLazyListImpl : WebBaseContainerNativeImpl("div", "lazy-list"), LazyListNativeImpl<WebDomElement> {
+class WebLazyListImpl : WebBaseContainerNativeImpl("genericui:lazylist", "lazy-list"), LazyListNativeImpl<WebDomElement> {
 
     private var orientation: Orientation = Orientation.VERTICAL
     private var totalItemCount: Int = 0

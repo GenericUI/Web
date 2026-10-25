@@ -4,9 +4,10 @@ import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.nativeimpl.shell.ContextMenuNativeImpl
 
 /**
- * Web implementation of [ContextMenuNativeImpl] positioned at `(x, y)` in viewport coordinates.
+ * Web implementation of [ContextMenuNativeImpl] rendered as `<genericui:contextmenu class="dropdown-menu">`
+ * positioned at `(x, y)` in viewport coordinates.
  */
-class WebContextMenuImpl : WebBaseContainerNativeImpl("div", "dropdown-menu"), ContextMenuNativeImpl<WebDomElement> {
+class WebContextMenuImpl : WebBaseContainerNativeImpl("genericui:contextmenu", "dropdown-menu"), ContextMenuNativeImpl<WebDomElement> {
     override fun showAt(anchor: NativeImpl<*>?, x: Int, y: Int) {
         nativeWidget.style["position"] = "fixed"
         nativeWidget.style["left"] = "${x}px"

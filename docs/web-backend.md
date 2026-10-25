@@ -27,7 +27,10 @@ Unlike canvas-emulated web UI toolkits that render text and buttons inside a sin
 | `DataTable` / `Table` | `WebTableImpl` | `<table class="table table-hover ..."><thead>...</thead><tbody>...</tbody></table>` |
 | `Dialog` | `WebDialogWindowImpl` | `<div class="modal fade show" role="dialog">...</div>` |
 | `TitleBar` (Instruction) | `WebWindowImpl` / `WebNavbarImpl` | Updates `document.title` and mounts `<nav class="navbar navbar-expand ...">` |
+| `PreferenceStore` | `WebPreferenceStoreImpl` | Stores each `key` directly in `window.localStorage` (`localStorage.getItem(key)` / `setItem(key, json)`) and listens for cross-tab `window.addEventListener("storage", ...)` events via `WebBrowserDomBridge`. |
 
+- **Application `themeColor` Support (`WebApplicationImpl` & `WebHtmlTemplateEngine`)**:
+  - Calling `application.setThemeColor("#2A80FF")` at runtime or setting `genericui { application { themeColor = "#2A80FF" } }` in `build.gradle.kts` sets `<meta id="genericui-theme-color" name="theme-color" content="#2A80FF">` in `index.html`, `"theme_color": "#2A80FF"` in `manifest.webmanifest`, and `--genericui-theme-color: #2A80FF` on `#genericui-app` / `:root`.
 - **Dual-Mode Styling**:
   1. **Bootstrap 5 Enums**: Calling `button.setType(BootstrapType.PRIMARY)`, `button.setSize(BootstrapSize.LG)`, or `container.setPaddingAll(SpacingScale.P_3)` synchronizes directly with `WebDomElement.classList` (`btn-primary`, `btn-lg`, `p-3`) via `BootstrapClassMapper`.
   2. **Compiled SASS/CSS Cascade**: `WebBaseNativeImpl.applyComputedStyle(style)` applies resolved CSS properties, `LinearGradient` / `RadialGradient` (`linear-gradient(...)` / `radial-gradient(...)`), box shadows, transforms, and native CSS transitions (`style["transition"]`).

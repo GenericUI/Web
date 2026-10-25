@@ -14,7 +14,7 @@ import kotlin.math.min
  * and viewport height, mounts/loads DOM nodes ONLY for items in the visible window (using top and bottom
  * spacer padding for total scroll height), and unmounts/unloads DOM nodes as soon as items scroll out of view.
  */
-class WebLazyGridImpl : WebBaseContainerNativeImpl("div", "lazy-grid"), LazyGridNativeImpl<WebDomElement> {
+class WebLazyGridImpl : WebBaseContainerNativeImpl("genericui:lazygrid", "lazy-grid"), LazyGridNativeImpl<WebDomElement> {
 
     private var columnsCount: Int = 3
     private var totalItemCount: Int = 0

@@ -16,10 +16,15 @@ class WebApplicationImpl(
     }
 
     private var themeMode: ThemeMode = ThemeMode.DARK
+    private var themeColor: String? = templateEngine.themeColor
     private var cdnInjected: Boolean = false
 
     init {
         activeApplication = this
+        if (!themeColor.isNullOrBlank()) {
+            nativeApplication.setStyle("--genericui-theme-color", themeColor)
+            nativeApplication.setAttribute("data-genericui-theme-color", themeColor!!)
+        }
         if (WebBrowserDomBridge.isBrowserEnvironment) {
             WebBrowserDomBridge.bindApplicationRoot(nativeApplication)
         } else {
@@ -40,8 +45,8 @@ class WebApplicationImpl(
 
     /**
      * Renders the complete HTML5 page for this application using [templateEngine], its
-     * configured Bootstrap CDN CSS & JS links, splash icon/progress bar, favicon, and
-     * Wasm-first / JS-IR-fallback loader script.
+     * configured Bootstrap CDN CSS & JS links, splash icon/progress bar, favicon,
+     * optional Web App Manifest / PWA links, and Wasm-first / JS-IR-fallback loader script.
      */
     fun renderIndexHtml(
         title: String = "GenericUI Web Application",
@@ -50,17 +55,21 @@ class WebApplicationImpl(
         wasmBinaryUrl: String? = null,
         jsIrUrl: String? = null,
         webIconUrl: String? = null,
-        splash: WebSplashConfig = templateEngine.splashConfig
+        themeColor: String? = this.themeColor ?: templateEngine.themeColor,
+        splash: WebSplashConfig = templateEngine.splashConfig,
+        manifest: WebAppManifestConfig = templateEngine.manifestConfig
     ): String = templateEngine.renderIndexHtml(
         title = title,
         themeMode = themeMode,
+        themeColor = themeColor,
         rootContainerId = nativeApplication.id.ifEmpty { "genericui-app" },
         appBundleScriptUrl = appBundleScriptUrl,
         wasmJsUrl = wasmJsUrl,
         wasmBinaryUrl = wasmBinaryUrl,
         jsIrUrl = jsIrUrl,
         webIconUrl = webIconUrl,
-        splash = splash
+        splash = splash,
+        manifest = manifest
     )
 
     override fun setThemeMode(mode: ThemeMode) {
@@ -74,6 +83,20 @@ class WebApplicationImpl(
     }
 
     override fun getThemeMode(): ThemeMode = themeMode
+
+    override fun setThemeColor(colorHex: String?) {
+        val clean = colorHex?.trim()?.takeIf { it.isNotEmpty() }
+        themeColor = clean
+        templateEngine.themeColor = clean
+        nativeApplication.setStyle("--genericui-theme-color", clean)
+        if (clean != null) {
+            nativeApplication.setAttribute("data-genericui-theme-color", clean)
+        } else {
+            nativeApplication.removeAttribute("data-genericui-theme-color")
+        }
+    }
+
+    override fun getThemeColor(): String? = themeColor
 
     override fun runEventLoop(onStarted: () -> Unit) {
         activeApplication = this

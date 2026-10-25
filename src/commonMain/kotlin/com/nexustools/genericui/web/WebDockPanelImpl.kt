@@ -4,9 +4,9 @@ import com.nexustools.genericui.component.dock.DockHeaderAction
 import com.nexustools.genericui.nativeimpl.dock.DockPanelNativeImpl
 
 /**
- * Web implementation of [DockPanelNativeImpl].
+ * Web implementation of [DockPanelNativeImpl] rendered as `<genericui:dockpanel class="dock-panel">`.
  */
-class WebDockPanelImpl : WebBaseContainerNativeImpl("section", "dock-panel"), DockPanelNativeImpl<WebDomElement> {
+class WebDockPanelImpl : WebBaseContainerNativeImpl("genericui:dockpanel", "dock-panel"), DockPanelNativeImpl<WebDomElement> {
     private var titleText: String = ""
     private var iconName: String? = null
     private var collapsedState: Boolean = false
