@@ -5,8 +5,7 @@ import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
 
 /**
  * Web implementation of [ApplicationNativeImpl] managing the root `#genericui-app` DOM body container,
- * Bootstrap `data-bs-theme` attribute, and [WebHtmlTemplateEngine] CDN resource injection for
- * Bootstrap 5 CSS and JavaScript.
+ * Bootstrap `data-bs-theme` attribute, and [WebHtmlTemplateEngine] CDN resource injection.
  */
 class WebApplicationImpl(
     val templateEngine: WebHtmlTemplateEngine = WebHtmlTemplateEngine()
@@ -20,7 +19,12 @@ class WebApplicationImpl(
     private var cdnInjected: Boolean = false
 
     init {
-        ensureBootstrapCdnInjected()
+        activeApplication = this
+        if (WebBrowserDomBridge.isBrowserEnvironment) {
+            WebBrowserDomBridge.bindApplicationRoot(nativeApplication)
+        } else {
+            ensureBootstrapCdnInjected()
+        }
     }
 
     /**
@@ -55,12 +59,18 @@ class WebApplicationImpl(
             ThemeMode.DARK, ThemeMode.SYSTEM -> "dark"
         }
         nativeApplication.setAttribute("data-bs-theme", bsTheme)
+        WebBrowserDomBridge.setDocumentTheme(bsTheme)
     }
 
     override fun getThemeMode(): ThemeMode = themeMode
 
     override fun runEventLoop(onStarted: () -> Unit) {
-        ensureBootstrapCdnInjected()
+        activeApplication = this
+        if (WebBrowserDomBridge.isBrowserEnvironment) {
+            WebBrowserDomBridge.bindApplicationRoot(nativeApplication)
+        } else {
+            ensureBootstrapCdnInjected()
+        }
         onStarted()
     }
 
@@ -71,5 +81,13 @@ class WebApplicationImpl(
 
     override fun dispose() {
         nativeApplication.remove()
+        if (activeApplication === this) {
+            activeApplication = null
+        }
+    }
+
+    companion object {
+        var activeApplication: WebApplicationImpl? = null
+            internal set
     }
 }

@@ -17,6 +17,9 @@ class WebCheckboxImpl(
         if (switchStyle) {
             nativeWidget.classList.add("form-switch")
         }
+        nativeWidget.addEventListener("click") {
+            setChecked(!checkedState)
+        }
     }
 
     override fun setLabel(label: String) {

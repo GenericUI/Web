@@ -1,123 +1,275 @@
 package com.nexustools.genericui.web
 
 /**
- * Lightweight, multiplatform-safe (`js` + `wasmJs`) HTML DOM element representation for the `:web` backend.
- * Mirrors standard W3C `HTMLElement` / `HTMLInputElement` / `HTMLCanvasElement` properties, CSS `classList`,
- * inline `style`, attributes, scroll offsets, and DOM event listeners.
+ * Lightweight, cross-platform DOM Element abstraction used by `:web` native implementations.
+ *
+ * Mirrors standard HTML5 `HTMLElement` properties (`tagName`, `id`, `classList`, `style`, `attributes`,
+ * `children`, `textContent`, `innerHTML`, `value`, `checked`, `disabled`, `addEventListener`, `click`, `remove`)
+ * so that `:web` widgets can be tested deterministically in common/JS/Wasm tests while mapping 1:1 to
+ * browser DOM elements via [WebBrowserDomBridge].
  */
-class WebDomElement(
-    val tagName: String
-) {
+class WebDomElement(val tagName: String) {
+    internal var browserPeer: Any? = null
+
     var id: String = ""
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncId(this, value)
+        }
+
+    private val backingClassList = linkedSetOf<String>()
+
+    val classList: MutableSet<String> = object : AbstractMutableSet<String>() {
+        override val size: Int
+            get() = backingClassList.size
+
+        override fun add(element: String): Boolean {
+            val added = backingClassList.add(element)
+            if (added) {
+                WebBrowserDomBridge.syncClassName(this@WebDomElement, className)
+            }
+            return added
+        }
+
+        override fun remove(element: String): Boolean {
+            val removed = backingClassList.remove(element)
+            if (removed) {
+                WebBrowserDomBridge.syncClassName(this@WebDomElement, className)
+            }
+            return removed
+        }
+
+        override fun clear() {
+            if (backingClassList.isNotEmpty()) {
+                backingClassList.clear()
+                WebBrowserDomBridge.syncClassName(this@WebDomElement, "")
+            }
+        }
+
+        override fun iterator(): MutableIterator<String> {
+            val delegate = backingClassList.iterator()
+            return object : MutableIterator<String> {
+                override fun hasNext(): Boolean = delegate.hasNext()
+                override fun next(): String = delegate.next()
+                override fun remove() {
+                    delegate.remove()
+                    WebBrowserDomBridge.syncClassName(this@WebDomElement, className)
+                }
+            }
+        }
+    }
+
+    var className: String
+        get() = backingClassList.joinToString(" ")
+        set(value) {
+            backingClassList.clear()
+            value.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach { backingClassList.add(it) }
+            WebBrowserDomBridge.syncClassName(this, className)
+        }
+
+    private val backingStyle = linkedMapOf<String, String>()
+
+    val style: MutableMap<String, String> = object : AbstractMutableMap<String, String>() {
+        override val entries: MutableSet<MutableMap.MutableEntry<String, String>>
+            get() = backingStyle.entries
+
+        override fun put(key: String, value: String): String? {
+            val prev = backingStyle.put(key, value)
+            WebBrowserDomBridge.syncStyle(this@WebDomElement, key, value)
+            return prev
+        }
+
+        override fun remove(key: String): String? {
+            val prev = backingStyle.remove(key)
+            WebBrowserDomBridge.syncStyle(this@WebDomElement, key, null)
+            return prev
+        }
+
+        override fun clear() {
+            backingStyle.clear()
+            WebBrowserDomBridge.clearStyles(this@WebDomElement)
+        }
+    }
+
+    val attributes: MutableMap<String, String> = linkedMapOf()
+    val children: MutableList<WebDomElement> = mutableListOf()
+    var parent: WebDomElement? = null
+
     var textContent: String = ""
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncTextContent(this, value)
+        }
+
     var innerHTML: String = ""
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncInnerHTML(this, value)
+        }
+
     var value: String = ""
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncValue(this, value)
+        }
+
     var checked: Boolean = false
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncChecked(this, value)
+        }
+
     var disabled: Boolean = false
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncDisabled(this, value)
+        }
+
     var readOnly: Boolean = false
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncReadOnly(this, value)
+        }
+
     var multiple: Boolean = false
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncMultiple(this, value)
+        }
+
     var webkitdirectory: Boolean = false
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncDirectory(this, value)
+        }
+
     var directory: Boolean = false
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncDirectory(this, value)
+        }
+
     var accept: String = ""
+        set(value) {
+            field = value
+            WebBrowserDomBridge.syncAccept(this, value)
+        }
+
     var type: String = ""
     var tabIndex: Int = 0
-
     var scrollTop: Double = 0.0
     var scrollLeft: Double = 0.0
-    var clientWidth: Int = 800
-    var clientHeight: Int = 600
     var scrollHeight: Int = 600
     var scrollWidth: Int = 800
 
-    val classList: MutableSet<String> = linkedSetOf()
-    val style: MutableMap<String, String> = linkedMapOf()
-    val attributes: MutableMap<String, String> = linkedMapOf()
-
-    var parentElement: WebDomElement? = null
-        private set
-
-    private val _children = mutableListOf<WebDomElement>()
-    val children: List<WebDomElement>
-        get() = _children
-
-    private val eventListeners = linkedMapOf<String, MutableList<(Any?) -> Unit>>()
-
-    var className: String
-        get() = classList.joinToString(" ")
+    var parentElement: WebDomElement?
+        get() = parent
         set(value) {
-            classList.clear()
-            value.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach { classList.add(it) }
+            parent = value
         }
+
+    private var explicitClientWidth: Int = 800
+    private var explicitClientHeight: Int = 600
+
+    var clientWidth: Int
+        get() = WebBrowserDomBridge.getClientWidth(this, explicitClientWidth)
+        set(value) {
+            explicitClientWidth = value
+        }
+
+    var clientHeight: Int
+        get() = WebBrowserDomBridge.getClientHeight(this, explicitClientHeight)
+        set(value) {
+            explicitClientHeight = value
+        }
+
+    private val listeners = linkedMapOf<String, MutableList<(Any?) -> Unit>>()
+
+    init {
+        WebBrowserDomBridge.createPeer(this)
+    }
+
+    internal fun updateValueFromBrowser(newValue: String) {
+        this.value = newValue
+    }
+
+    internal fun updateCheckedFromBrowser(newChecked: Boolean) {
+        this.checked = newChecked
+    }
+
+    internal fun dispatchFromBrowser(type: String, payload: Any? = null) {
+        listeners[type]?.toList()?.forEach { it(payload) }
+    }
 
     fun setAttribute(name: String, value: String) {
         attributes[name] = value
-        when (name) {
-            "id" -> id = value
-            "type" -> type = value
-            "accept" -> accept = value
-            "tabindex" -> tabIndex = value.toIntOrNull() ?: 0
-            "webkitdirectory" -> webkitdirectory = value != "false"
-            "directory" -> directory = value != "false"
-            "multiple" -> multiple = value != "false"
-        }
+        WebBrowserDomBridge.syncAttribute(this, name, value)
     }
 
     fun getAttribute(name: String): String? = attributes[name]
 
     fun removeAttribute(name: String) {
         attributes.remove(name)
+        WebBrowserDomBridge.syncAttribute(this, name, null)
     }
 
-    fun appendChild(child: WebDomElement): WebDomElement {
-        child.parentElement?.removeChild(child)
-        child.parentElement = this
-        _children.add(child)
-        return child
+    fun hasAttribute(name: String): Boolean = name in attributes
+
+    fun appendChild(child: WebDomElement) {
+        child.parent?.removeChild(child)
+        child.parent = this
+        children.add(child)
+        WebBrowserDomBridge.appendChild(this, child)
     }
 
-    fun insertChildAt(index: Int, child: WebDomElement): WebDomElement {
-        child.parentElement?.removeChild(child)
-        child.parentElement = this
-        if (index < 0 || index >= _children.size) {
-            _children.add(child)
+    fun insertChildAt(index: Int, child: WebDomElement) {
+        child.parent?.removeChild(child)
+        child.parent = this
+        if (index < 0 || index >= children.size) {
+            children.add(child)
+            WebBrowserDomBridge.appendChild(this, child)
         } else {
-            _children.add(index, child)
+            children.add(index, child)
+            WebBrowserDomBridge.insertChildAt(this, index, child)
         }
-        return child
     }
 
     fun removeChild(child: WebDomElement): Boolean {
-        val removed = _children.remove(child)
+        val removed = children.remove(child)
         if (removed) {
-            child.parentElement = null
+            child.parent = null
+            WebBrowserDomBridge.removeChild(this, child)
         }
         return removed
     }
 
     fun clearChildren() {
-        for (child in _children) {
-            child.parentElement = null
-        }
-        _children.clear()
+        children.forEach { it.parent = null }
+        children.clear()
+        WebBrowserDomBridge.clearChildren(this)
     }
 
     fun remove() {
-        parentElement?.removeChild(this)
+        parent?.removeChild(this)
     }
 
-    fun addEventListener(eventType: String, listener: (Any?) -> Unit) {
-        eventListeners.getOrPut(eventType) { mutableListOf() }.add(listener)
+    fun addEventListener(type: String, listener: (Any?) -> Unit) {
+        listeners.getOrPut(type) { mutableListOf() }.add(listener)
     }
 
-    fun removeEventListener(eventType: String, listener: (Any?) -> Unit) {
-        eventListeners[eventType]?.remove(listener)
+    fun removeEventListener(type: String, listener: (Any?) -> Unit) {
+        listeners[type]?.remove(listener)
     }
 
-    fun dispatchEvent(eventType: String, payload: Any? = null) {
-        eventListeners[eventType]?.toList()?.forEach { it(payload) }
+    fun dispatchEvent(type: String, payload: Any? = null) {
+        listeners[type]?.toList()?.forEach { it(payload) }
     }
 
     fun click() {
-        dispatchEvent("click", null)
+        if (!disabled) {
+            if (!WebBrowserDomBridge.triggerClick(this)) {
+                dispatchEvent("click")
+            }
+        }
     }
 }

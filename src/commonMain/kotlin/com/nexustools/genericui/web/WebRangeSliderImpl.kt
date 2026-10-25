@@ -14,6 +14,11 @@ class WebRangeSliderImpl : WebBaseNativeImpl("input", "form-range"), RangeSlider
 
     init {
         nativeWidget.setAttribute("type", "range")
+        nativeWidget.addEventListener("input") {
+            val v = nativeWidget.value.toDoubleOrNull() ?: return@addEventListener
+            currentVal = v.coerceIn(minVal, maxVal)
+            onValueChangedListener?.invoke(currentVal)
+        }
     }
 
     override fun setRange(min: Double, max: Double, step: Double) {

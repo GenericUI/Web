@@ -12,6 +12,15 @@ class WebTextInputImpl(
     private var onValueChangedListener: ((String) -> Unit)? = null
     private var onSubmitListener: ((String) -> Unit)? = null
 
+    init {
+        nativeWidget.addEventListener("input") {
+            onValueChangedListener?.invoke(nativeWidget.value)
+        }
+        nativeWidget.addEventListener("change") {
+            onSubmitListener?.invoke(nativeWidget.value)
+        }
+    }
+
     override fun setValue(value: String) {
         nativeWidget.value = value
     }

@@ -100,10 +100,18 @@ open class WebBaseNativeImpl(
         }
     }
 
+    private val appliedComputedStyleKeys = mutableSetOf<String>()
+
+    private fun setComputedStyleProp(key: String, value: String) {
+        appliedComputedStyleKeys.add(key)
+        nativeWidget.style[key] = value
+    }
+
     override fun removeClass(className: String) {
         className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach {
             nativeWidget.classList.remove(it)
         }
+        WebWindowImpl.scheduleLayoutRefresh()
     }
 
     override fun hasClass(className: String): Boolean =
@@ -236,25 +244,39 @@ open class WebBaseNativeImpl(
     }
 
     override fun applyComputedStyle(style: ComputedStyle) {
-        style.backgroundColor?.let { nativeWidget.style["background-color"] = it.toCssRgba() }
-        style.textColor?.let { nativeWidget.style["color"] = it.toCssRgba() }
-        style.borderColor?.let { nativeWidget.style["border-color"] = it.toCssRgba() }
-        style.borderWidthPx?.let { nativeWidget.style["border-width"] = "${it}px" }
-        style.borderRadiusPx?.let { nativeWidget.style["border-radius"] = "${it}px" }
-        style.fontSizePx?.let { nativeWidget.style["font-size"] = "${it}px" }
-        style.fontFamily?.let { nativeWidget.style["font-family"] = it }
-        style.fontWeightNumeric?.let { nativeWidget.style["font-weight"] = it.toString() }
-        style.backgroundImageUrl?.let { nativeWidget.style["background-image"] = "url('$it')" }
-        style.textShadow?.let { nativeWidget.style["text-shadow"] = it }
-        style.boxShadow?.let { nativeWidget.style["box-shadow"] = it }
-        style.transform?.let { nativeWidget.style["transform"] = it }
-        style.transition?.let { nativeWidget.style["transition"] = it }
-        style.zIndex?.let { nativeWidget.style["z-index"] = it.toString() }
-        style.left?.let { nativeWidget.style["left"] = it }
-        style.top?.let { nativeWidget.style["top"] = it }
-        style.cursor?.let { nativeWidget.style["cursor"] = it }
-        style.pointerEventsEnabled?.let { nativeWidget.style["pointer-events"] = if (it) "auto" else "none" }
-        style.rawDeclarations.forEach { (k, v) -> nativeWidget.style[k] = v }
+        for (oldKey in appliedComputedStyleKeys) {
+            nativeWidget.style.remove(oldKey)
+        }
+        appliedComputedStyleKeys.clear()
+
+        style.backgroundColor?.let { setComputedStyleProp("background-color", it.toCssRgba()) }
+        style.backgroundGradient?.let { setComputedStyleProp("background-image", it.toCssString()) }
+        style.textColor?.let { setComputedStyleProp("color", it.toCssRgba()) }
+        style.borderColor?.let { setComputedStyleProp("border-color", it.toCssRgba()) }
+        style.borderWidthPx?.let { setComputedStyleProp("border-width", "${it}px") }
+        style.borderRadiusPx?.let { setComputedStyleProp("border-radius", "${it}px") }
+        style.fontSizePx?.let { setComputedStyleProp("font-size", "${it}px") }
+        style.fontFamily?.let { setComputedStyleProp("font-family", it) }
+        style.fontWeightNumeric?.let { setComputedStyleProp("font-weight", it.toString()) }
+        style.backgroundImageUrl?.let { setComputedStyleProp("background-image", "url('$it')") }
+        style.textShadow?.let { setComputedStyleProp("text-shadow", it) }
+        style.boxShadow?.let { setComputedStyleProp("box-shadow", it) }
+        style.transform?.let { setComputedStyleProp("transform", it) }
+        style.transition?.let { setComputedStyleProp("transition", it) }
+        style.zIndex?.let { setComputedStyleProp("z-index", it.toString()) }
+        style.left?.let { setComputedStyleProp("left", it) }
+        style.top?.let { setComputedStyleProp("top", it) }
+        style.cursor?.let { setComputedStyleProp("cursor", it) }
+        style.pointerEventsEnabled.let { setComputedStyleProp("pointer-events", if (it) "auto" else "none") }
+        style.rawDeclarations.forEach { (k, v) -> setComputedStyleProp(k, v) }
+
+        preferredSizeValue?.let { size ->
+            nativeWidget.style["width"] = "${size.width}px"
+            nativeWidget.style["height"] = "${size.height}px"
+        }
+        if (!visibleFlag) {
+            nativeWidget.style["display"] = "none"
+        }
     }
 
     override fun supportsNativeTransitions(): Boolean = true

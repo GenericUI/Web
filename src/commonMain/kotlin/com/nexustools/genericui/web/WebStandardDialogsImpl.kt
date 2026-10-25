@@ -17,6 +17,7 @@ class WebStandardDialogsImpl : StandardDialogsNativeImpl {
         okButtonText: String,
         onDismissed: () -> Unit
     ) {
+        WebBrowserDomBridge.showAlert(message)
         onDismissed()
     }
 
@@ -29,7 +30,7 @@ class WebStandardDialogsImpl : StandardDialogsNativeImpl {
         type: BootstrapType,
         onResult: (Boolean) -> Unit
     ) {
-        onResult(true)
+        onResult(WebBrowserDomBridge.showConfirm(message))
     }
 
     override fun showPrompt(
@@ -42,7 +43,7 @@ class WebStandardDialogsImpl : StandardDialogsNativeImpl {
         cancelText: String,
         onResult: (String?) -> Unit
     ) {
-        onResult(defaultValue)
+        onResult(WebBrowserDomBridge.showPrompt(message, defaultValue))
     }
 
     override fun showChoice(

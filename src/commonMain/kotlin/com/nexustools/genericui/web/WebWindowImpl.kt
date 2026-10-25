@@ -21,14 +21,22 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
     override val supportsMultiWindow: Boolean = false
 
     private var titleText: String = "GenericUI"
-    private var windowSize: Size = Size(1280, 800)
+    private var windowSize: Size = Size(
+        WebBrowserDomBridge.getViewportWidth(1280),
+        WebBrowserDomBridge.getViewportHeight(800)
+    )
     private var windowState: WindowState = WindowState.NORMAL
     private var fullscreenFlag: Boolean = false
     private var pipActive: Boolean = false
 
     private val menuSlot = WebDomElement("header").apply { classList.add("genericui-window-menubar-slot") }
     private val navSlot = WebDomElement("nav").apply { classList.add("genericui-window-navbar-slot") }
-    private val contentSlot = WebDomElement("main").apply { classList.add("genericui-window-content-slot") }
+    private val contentSlot = WebDomElement("main").apply {
+        classList.add("genericui-window-content-slot")
+        style["width"] = "100%"
+        style["height"] = "100%"
+        style["position"] = "relative"
+    }
     private val bottomNavSlot = WebDomElement("footer").apply { classList.add("genericui-window-bottomnav-slot") }
 
     private var onResizeListener: ((WindowConfiguration) -> Unit)? = null
@@ -36,15 +44,49 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
     private var onCloseRequestedListener: (() -> Boolean)? = null
 
     init {
+        activeWindow = this
+        nativeWidget.style["width"] = "100%"
+        nativeWidget.style["height"] = "100%"
+        nativeWidget.style["position"] = "relative"
         nativeWidget.appendChild(menuSlot)
         nativeWidget.appendChild(navSlot)
         nativeWidget.appendChild(contentSlot)
         nativeWidget.appendChild(bottomNavSlot)
+        WebBrowserDomBridge.registerWindowResize { w, h ->
+            windowSize = Size(w, h)
+            nativeWidget.clientWidth = w
+            nativeWidget.clientHeight = h
+            onResizeListener?.invoke(WindowConfiguration(widthPx = w, heightPx = h))
+        }
+    }
+
+    internal fun notifyPostLayoutResize() {
+        val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
+        val vh = WebBrowserDomBridge.getViewportHeight(windowSize.height)
+        windowSize = Size(vw, vh)
+        nativeWidget.clientWidth = vw
+        nativeWidget.clientHeight = vh
+        onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+    }
+
+    companion object {
+        internal var activeWindow: WebWindowImpl? = null
+        private var layoutRefreshPending: Boolean = false
+
+        internal fun scheduleLayoutRefresh() {
+            if (!WebBrowserDomBridge.isBrowserEnvironment || layoutRefreshPending) return
+            layoutRefreshPending = true
+            WebBrowserDomBridge.schedulePostLayoutPass {
+                layoutRefreshPending = false
+                activeWindow?.notifyPostLayoutResize()
+            }
+        }
     }
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         val dom = childImpl.nativeWidget as? WebDomElement ?: return
         contentSlot.insertChildAt(index, dom)
+        scheduleLayoutRefresh()
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
@@ -59,6 +101,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
     override fun setTitle(title: String) {
         titleText = title
         nativeWidget.setAttribute("data-window-title", title)
+        WebBrowserDomBridge.setDocumentTitle(title)
     }
 
     override fun getTitle(): String = titleText
@@ -124,7 +167,18 @@ class WebWindowImpl : WebBaseContainerNativeImpl("div", "genericui-window"), Win
 
     override fun showWindow() {
         setVisible(true)
+        val appRoot = WebApplicationImpl.activeApplication?.nativeApplication
+        if (appRoot != null && nativeWidget.parent == null) {
+            appRoot.appendChild(nativeWidget)
+        }
+        val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
+        val vh = WebBrowserDomBridge.getViewportHeight(windowSize.height)
+        windowSize = Size(vw, vh)
+        nativeWidget.clientWidth = vw
+        nativeWidget.clientHeight = vh
         onFocusListener?.invoke(true)
+        onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+        scheduleLayoutRefresh()
     }
 
     override fun closeWindow() {

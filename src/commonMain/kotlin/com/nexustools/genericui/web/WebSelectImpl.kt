@@ -10,6 +10,13 @@ class WebSelectImpl : WebBaseNativeImpl("select", "form-select"), SelectNativeIm
     private var selectedValue: String? = null
     private var onSelectionChangedListener: ((String) -> Unit)? = null
 
+    init {
+        nativeWidget.addEventListener("change") {
+            selectedValue = nativeWidget.value
+            onSelectionChangedListener?.invoke(nativeWidget.value)
+        }
+    }
+
     override fun setOptions(options: List<Pair<String, String>>) {
         optionsList = options
         nativeWidget.clearChildren()
