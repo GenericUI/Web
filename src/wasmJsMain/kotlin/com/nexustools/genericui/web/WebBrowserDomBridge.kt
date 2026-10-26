@@ -149,6 +149,30 @@ private external fun wasmSchedulePostLayout(block: () -> Unit)
     "} return false; }")
 private external fun wasmScheduleTimeout(delayMs: Int, block: () -> Unit): Boolean
 
+@JsFun("(delayMs, block) => { " +
+    "if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') { " +
+    "  return window.setTimeout(() => block(), delayMs) | 0; " +
+    "} return -1; }")
+private external fun wasmSetTimeoutId(delayMs: Int, block: () -> Unit): Int
+
+@JsFun("(intervalMs, block) => { " +
+    "if (typeof window !== 'undefined' && typeof window.setInterval === 'function') { " +
+    "  return window.setInterval(() => block(), intervalMs) | 0; " +
+    "} return -1; }")
+private external fun wasmSetIntervalId(intervalMs: Int, block: () -> Unit): Int
+
+@JsFun("(id) => { " +
+    "if (typeof window !== 'undefined' && typeof window.clearTimeout === 'function') { " +
+    "  window.clearTimeout(id); return true; " +
+    "} return false; }")
+private external fun wasmClearTimeoutId(id: Int): Boolean
+
+@JsFun("(id) => { " +
+    "if (typeof window !== 'undefined' && typeof window.clearInterval === 'function') { " +
+    "  window.clearInterval(id); return true; " +
+    "} return false; }")
+private external fun wasmClearIntervalId(id: Int): Boolean
+
 @JsFun("(url, method, contentType, hasContentType, body, hasBody, onSuccess, onError) => { " +
     "if (typeof XMLHttpRequest === 'undefined') { onError('XMLHttpRequest is not available'); return; } " +
     "const req = new XMLHttpRequest(); " +
@@ -302,6 +326,50 @@ private external fun wasmLocalStorageKeyAt(idx: Int): String?
 @JsFun("(cb) => { if (typeof window !== 'undefined') { window.addEventListener('storage', (ev) => { cb(ev.key || '', ev.key !== null && ev.key !== undefined, ev.newValue || '', ev.newValue !== null && ev.newValue !== undefined); }); } }")
 private external fun wasmRegisterStorageListener(
     cb: (String, Boolean, String, Boolean) -> Unit
+)
+
+@JsFun("() => { try { const h = (typeof window !== 'undefined' && window.location && window.location.hash) ? window.location.hash : ''; return h.startsWith('#') ? h.substring(1) : h; } catch (e) { return ''; } }")
+private external fun wasmGetLocationHash(): String
+
+@JsFun("(hash) => { try { if (typeof window !== 'undefined' && window.location) { window.location.hash = hash ? ('#' + hash) : ''; } } catch (e) {} }")
+private external fun wasmSetLocationHash(hash: String)
+
+@JsFun("(routeHash, historyIndex, title, stateJson, hasStateJson) => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.pushState === 'function') { const st = { genericUiRoute: routeHash, genericUiIndex: historyIndex, genericUiStateJson: hasStateJson ? stateJson : null }; const url = routeHash ? ('#' + routeHash) : '#'; window.history.pushState(st, title, url); if (title && typeof document !== 'undefined') document.title = title; } } catch (e) {} }")
+private external fun wasmHistoryPushState(
+    routeHash: String,
+    historyIndex: Int,
+    title: String,
+    stateJson: String,
+    hasStateJson: Boolean
+)
+
+@JsFun("(routeHash, historyIndex, title, stateJson, hasStateJson) => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') { const st = { genericUiRoute: routeHash, genericUiIndex: historyIndex, genericUiStateJson: hasStateJson ? stateJson : null }; const url = routeHash ? ('#' + routeHash) : '#'; window.history.replaceState(st, title, url); if (title && typeof document !== 'undefined') document.title = title; } } catch (e) {} }")
+private external fun wasmHistoryReplaceState(
+    routeHash: String,
+    historyIndex: Int,
+    title: String,
+    stateJson: String,
+    hasStateJson: Boolean
+)
+
+@JsFun("() => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.back === 'function') { window.history.back(); return true; } } catch (e) {} return false; }")
+private external fun wasmHistoryBack(): Boolean
+
+@JsFun("() => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.forward === 'function') { window.history.forward(); return true; } } catch (e) {} return false; }")
+private external fun wasmHistoryForward(): Boolean
+
+@JsFun("() => { try { const st = (typeof window !== 'undefined' && window.history) ? window.history.state : null; return st && typeof st.genericUiIndex === 'number'; } catch (e) { return false; } }")
+private external fun wasmHasCurrentHistoryIndex(): Boolean
+
+@JsFun("() => { try { const st = (typeof window !== 'undefined' && window.history) ? window.history.state : null; return (st && typeof st.genericUiIndex === 'number') ? (st.genericUiIndex | 0) : 0; } catch (e) { return 0; } }")
+private external fun wasmGetCurrentHistoryIndex(): Int
+
+@JsFun("() => { try { const st = (typeof window !== 'undefined' && window.history) ? window.history.state : null; return (st && typeof st.genericUiStateJson === 'string') ? st.genericUiStateJson : null; } catch (e) { return null; } }")
+private external fun wasmGetCurrentHistoryStateJson(): String?
+
+@JsFun("(cb) => { if (typeof window !== 'undefined') { window.addEventListener('popstate', (ev) => { const st = ev && ev.state ? ev.state : null; const rawHash = (window.location && window.location.hash) ? window.location.hash : ''; const fallbackRoute = rawHash.startsWith('#') ? rawHash.substring(1) : rawHash; const route = (st && typeof st.genericUiRoute === 'string') ? st.genericUiRoute : fallbackRoute; const hasIdx = !!(st && typeof st.genericUiIndex === 'number'); const idx = hasIdx ? (st.genericUiIndex | 0) : 0; const hasJson = !!(st && typeof st.genericUiStateJson === 'string'); const json = hasJson ? st.genericUiStateJson : ''; cb(route, hasIdx, idx, hasJson, json); }); } }")
+private external fun wasmRegisterPopStateListener(
+    cb: (String, Boolean, Int, Boolean, String) -> Unit
 )
 
 actual object WebBrowserDomBridge {
@@ -563,6 +631,18 @@ actual object WebBrowserDomBridge {
     actual fun scheduleTimeout(delayMs: Int, block: () -> Unit): Boolean =
         if (isBrowserEnvironment) wasmScheduleTimeout(delayMs.coerceAtLeast(0), block) else false
 
+    actual fun setTimeoutId(delayMs: Int, block: () -> Unit): Int =
+        if (isBrowserEnvironment) wasmSetTimeoutId(delayMs.coerceAtLeast(0), block) else -1
+
+    actual fun setIntervalId(intervalMs: Int, block: () -> Unit): Int =
+        if (isBrowserEnvironment) wasmSetIntervalId(intervalMs.coerceAtLeast(1), block) else -1
+
+    actual fun clearTimeoutId(timerId: Int): Boolean =
+        if (isBrowserEnvironment) wasmClearTimeoutId(timerId) else false
+
+    actual fun clearIntervalId(timerId: Int): Boolean =
+        if (isBrowserEnvironment) wasmClearIntervalId(timerId) else false
+
     actual fun showAlert(message: String) {
         if (isBrowserEnvironment) wasmAlert(message)
     }
@@ -628,6 +708,121 @@ actual object WebBrowserDomBridge {
             onStorageChanged(
                 if (hasKey) key else null,
                 if (hasNewValue) newValue else null
+            )
+        }
+    }
+
+    private val headlessHistoryEntries = mutableListOf<Triple<String, Int, String?>>()
+    private var headlessHistoryCursor: Int = -1
+    private var headlessCurrentHash: String = ""
+    private val headlessPopStateListeners = mutableListOf<(String, Int?, String?) -> Unit>()
+
+    actual fun getLocationHash(): String {
+        if (!isBrowserEnvironment) return headlessCurrentHash
+        return wasmGetLocationHash()
+    }
+
+    actual fun setLocationHash(hash: String) {
+        val clean = hash.removePrefix("#")
+        headlessCurrentHash = clean
+        if (!isBrowserEnvironment) {
+            val state = getCurrentHistoryState()
+            for (listener in headlessPopStateListeners.toList()) {
+                listener(clean, state.first, state.second)
+            }
+            return
+        }
+        wasmSetLocationHash(clean)
+    }
+
+    actual fun historyPushState(routeHash: String, historyIndex: Int, title: String, stateJson: String?) {
+        val clean = routeHash.removePrefix("#")
+        headlessCurrentHash = clean
+        while (headlessHistoryEntries.size > headlessHistoryCursor + 1 && headlessHistoryEntries.isNotEmpty()) {
+            headlessHistoryEntries.removeAt(headlessHistoryEntries.lastIndex)
+        }
+        headlessHistoryEntries.add(Triple(clean, historyIndex, stateJson))
+        headlessHistoryCursor = headlessHistoryEntries.lastIndex
+        if (!isBrowserEnvironment) return
+        wasmHistoryPushState(
+            routeHash = clean,
+            historyIndex = historyIndex,
+            title = title,
+            stateJson = stateJson ?: "",
+            hasStateJson = stateJson != null
+        )
+    }
+
+    actual fun historyReplaceState(routeHash: String, historyIndex: Int, title: String, stateJson: String?) {
+        val clean = routeHash.removePrefix("#")
+        headlessCurrentHash = clean
+        if (headlessHistoryCursor in headlessHistoryEntries.indices) {
+            headlessHistoryEntries[headlessHistoryCursor] = Triple(clean, historyIndex, stateJson)
+        } else {
+            headlessHistoryEntries.add(Triple(clean, historyIndex, stateJson))
+            headlessHistoryCursor = headlessHistoryEntries.lastIndex
+        }
+        if (!isBrowserEnvironment) return
+        wasmHistoryReplaceState(
+            routeHash = clean,
+            historyIndex = historyIndex,
+            title = title,
+            stateJson = stateJson ?: "",
+            hasStateJson = stateJson != null
+        )
+    }
+
+    actual fun historyBack(): Boolean {
+        if (!isBrowserEnvironment) {
+            if (headlessHistoryCursor <= 0) return false
+            headlessHistoryCursor -= 1
+            val entry = headlessHistoryEntries[headlessHistoryCursor]
+            headlessCurrentHash = entry.first
+            for (listener in headlessPopStateListeners.toList()) {
+                listener(entry.first, entry.second, entry.third)
+            }
+            return true
+        }
+        return wasmHistoryBack()
+    }
+
+    actual fun historyForward(): Boolean {
+        if (!isBrowserEnvironment) {
+            if (headlessHistoryCursor + 1 >= headlessHistoryEntries.size) return false
+            headlessHistoryCursor += 1
+            val entry = headlessHistoryEntries[headlessHistoryCursor]
+            headlessCurrentHash = entry.first
+            for (listener in headlessPopStateListeners.toList()) {
+                listener(entry.first, entry.second, entry.third)
+            }
+            return true
+        }
+        return wasmHistoryForward()
+    }
+
+    actual fun getCurrentHistoryState(): Pair<Int?, String?> {
+        if (!isBrowserEnvironment) {
+            val entry = headlessHistoryEntries.getOrNull(headlessHistoryCursor) ?: return null to null
+            return entry.second to entry.third
+        }
+        val idx = if (wasmHasCurrentHistoryIndex()) wasmGetCurrentHistoryIndex() else null
+        val json = wasmGetCurrentHistoryStateJson()
+        if (idx == null && json == null) {
+            val entry = headlessHistoryEntries.getOrNull(headlessHistoryCursor)
+            return (entry?.second) to (entry?.third)
+        }
+        return idx to json
+    }
+
+    actual fun registerPopStateListener(onPopState: (routeHash: String, historyIndex: Int?, stateJson: String?) -> Unit) {
+        headlessPopStateListeners.add(onPopState)
+        if (!isBrowserEnvironment) return
+        wasmRegisterPopStateListener { route, hasIdx, idx, hasJson, json ->
+            headlessCurrentHash = route
+            onPopState(
+                route,
+                if (hasIdx) idx else null,
+                if (hasJson) json else null
             )
         }
     }

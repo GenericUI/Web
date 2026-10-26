@@ -546,6 +546,48 @@ actual object WebBrowserDomBridge {
         return false
     }
 
+    actual fun setTimeoutId(delayMs: Int, block: () -> Unit): Int {
+        if (!isBrowserEnvironment) return -1
+        val win: dynamic = js("window")
+        if (js("typeof win.setTimeout === 'function'") as Boolean) {
+            return (win.setTimeout({
+                block()
+            }, delayMs.coerceAtLeast(0)) as? Number)?.toInt() ?: -1
+        }
+        return -1
+    }
+
+    actual fun setIntervalId(intervalMs: Int, block: () -> Unit): Int {
+        if (!isBrowserEnvironment) return -1
+        val win: dynamic = js("window")
+        if (js("typeof win.setInterval === 'function'") as Boolean) {
+            return (win.setInterval({
+                block()
+            }, intervalMs.coerceAtLeast(1)) as? Number)?.toInt() ?: -1
+        }
+        return -1
+    }
+
+    actual fun clearTimeoutId(timerId: Int): Boolean {
+        if (!isBrowserEnvironment) return false
+        val win: dynamic = js("window")
+        if (js("typeof win.clearTimeout === 'function'") as Boolean) {
+            win.clearTimeout(timerId)
+            return true
+        }
+        return false
+    }
+
+    actual fun clearIntervalId(timerId: Int): Boolean {
+        if (!isBrowserEnvironment) return false
+        val win: dynamic = js("window")
+        if (js("typeof win.clearInterval === 'function'") as Boolean) {
+            win.clearInterval(timerId)
+            return true
+        }
+        return false
+    }
+
     actual fun showAlert(message: String) {
         if (!isBrowserEnvironment) return
         val win: dynamic = js("window")
@@ -663,5 +705,161 @@ actual object WebBrowserDomBridge {
             val nv = ev.newValue as? String
             onStorageChanged(k, nv)
         })
+    }
+
+    private val headlessHistoryEntries = mutableListOf<Triple<String, Int, String?>>()
+    private var headlessHistoryCursor: Int = -1
+    private var headlessCurrentHash: String = ""
+    private val headlessPopStateListeners = mutableListOf<(String, Int?, String?) -> Unit>()
+
+    actual fun getLocationHash(): String {
+        if (!isBrowserEnvironment) return headlessCurrentHash
+        return runCatching {
+            val raw = (js("window.location.hash") as? String).orEmpty()
+            raw.removePrefix("#")
+        }.getOrDefault(headlessCurrentHash)
+    }
+
+    actual fun setLocationHash(hash: String) {
+        val clean = hash.removePrefix("#")
+        headlessCurrentHash = clean
+        if (!isBrowserEnvironment) {
+            val state = getCurrentHistoryState()
+            for (listener in headlessPopStateListeners.toList()) {
+                listener(clean, state.first, state.second)
+            }
+            return
+        }
+        runCatching {
+            val win: dynamic = js("window")
+            win.location.hash = if (clean.isEmpty()) "" else "#$clean"
+        }
+    }
+
+    actual fun historyPushState(routeHash: String, historyIndex: Int, title: String, stateJson: String?) {
+        val clean = routeHash.removePrefix("#")
+        headlessCurrentHash = clean
+        while (headlessHistoryEntries.size > headlessHistoryCursor + 1 && headlessHistoryEntries.isNotEmpty()) {
+            headlessHistoryEntries.removeAt(headlessHistoryEntries.lastIndex)
+        }
+        headlessHistoryEntries.add(Triple(clean, historyIndex, stateJson))
+        headlessHistoryCursor = headlessHistoryEntries.lastIndex
+        if (!isBrowserEnvironment) return
+        runCatching {
+            val win: dynamic = js("window")
+            val stateObj: dynamic = js("({})")
+            stateObj.genericUiRoute = clean
+            stateObj.genericUiIndex = historyIndex
+            stateObj.genericUiStateJson = stateJson
+            val urlHash = if (clean.isEmpty()) "#" else "#$clean"
+            win.history.pushState(stateObj, title, urlHash)
+            if (title.isNotBlank()) {
+                setDocumentTitle(title)
+            }
+        }
+    }
+
+    actual fun historyReplaceState(routeHash: String, historyIndex: Int, title: String, stateJson: String?) {
+        val clean = routeHash.removePrefix("#")
+        headlessCurrentHash = clean
+        if (headlessHistoryCursor in headlessHistoryEntries.indices) {
+            headlessHistoryEntries[headlessHistoryCursor] = Triple(clean, historyIndex, stateJson)
+        } else {
+            headlessHistoryEntries.add(Triple(clean, historyIndex, stateJson))
+            headlessHistoryCursor = headlessHistoryEntries.lastIndex
+        }
+        if (!isBrowserEnvironment) return
+        runCatching {
+            val win: dynamic = js("window")
+            val stateObj: dynamic = js("({})")
+            stateObj.genericUiRoute = clean
+            stateObj.genericUiIndex = historyIndex
+            stateObj.genericUiStateJson = stateJson
+            val urlHash = if (clean.isEmpty()) "#" else "#$clean"
+            win.history.replaceState(stateObj, title, urlHash)
+            if (title.isNotBlank()) {
+                setDocumentTitle(title)
+            }
+        }
+    }
+
+    actual fun historyBack(): Boolean {
+        if (!isBrowserEnvironment) {
+            if (headlessHistoryCursor <= 0) return false
+            headlessHistoryCursor -= 1
+            val entry = headlessHistoryEntries[headlessHistoryCursor]
+            headlessCurrentHash = entry.first
+            for (listener in headlessPopStateListeners.toList()) {
+                listener(entry.first, entry.second, entry.third)
+            }
+            return true
+        }
+        return runCatching {
+            val win: dynamic = js("window")
+            win.history.back()
+            true
+        }.getOrDefault(false)
+    }
+
+    actual fun historyForward(): Boolean {
+        if (!isBrowserEnvironment) {
+            if (headlessHistoryCursor + 1 >= headlessHistoryEntries.size) return false
+            headlessHistoryCursor += 1
+            val entry = headlessHistoryEntries[headlessHistoryCursor]
+            headlessCurrentHash = entry.first
+            for (listener in headlessPopStateListeners.toList()) {
+                listener(entry.first, entry.second, entry.third)
+            }
+            return true
+        }
+        return runCatching {
+            val win: dynamic = js("window")
+            win.history.forward()
+            true
+        }.getOrDefault(false)
+    }
+
+    actual fun getCurrentHistoryState(): Pair<Int?, String?> {
+        if (!isBrowserEnvironment) {
+            val entry = headlessHistoryEntries.getOrNull(headlessHistoryCursor) ?: return null to null
+            return entry.second to entry.third
+        }
+        return runCatching {
+            val st: dynamic = js("window.history && window.history.state")
+            if (st == null || st == undefined) {
+                val entry = headlessHistoryEntries.getOrNull(headlessHistoryCursor)
+                return@runCatching (entry?.second) to (entry?.third)
+            }
+            val idx = (st.genericUiIndex as? Number)?.toInt()
+            val json = st.genericUiStateJson as? String
+            idx to json
+        }.getOrDefault(null to null)
+    }
+
+    actual fun registerPopStateListener(onPopState: (routeHash: String, historyIndex: Int?, stateJson: String?) -> Unit) {
+        headlessPopStateListeners.add(onPopState)
+        if (!isBrowserEnvironment) return
+        runCatching {
+            val win: dynamic = js("window")
+            win.addEventListener("popstate", { ev: dynamic ->
+                val st = ev.state
+                val route = (st?.genericUiRoute as? String)
+                    ?: ((win.location.hash as? String).orEmpty().removePrefix("#"))
+                val idx = (st?.genericUiIndex as? Number)?.toInt()
+                val json = st?.genericUiStateJson as? String
+                headlessCurrentHash = route
+                onPopState(route, idx, json)
+            })
+            win.addEventListener("hashchange", { _: dynamic ->
+                val route = (win.location.hash as? String).orEmpty().removePrefix("#")
+                if (route != headlessCurrentHash) {
+                    headlessCurrentHash = route
+                    val st = win.history?.state
+                    val idx = (st?.genericUiIndex as? Number)?.toInt()
+                    val json = st?.genericUiStateJson as? String
+                    onPopState(route, idx, json)
+                }
+            })
+        }
     }
 }

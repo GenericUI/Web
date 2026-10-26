@@ -5,7 +5,8 @@ import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
 
 /**
  * Web implementation of [ApplicationNativeImpl] managing the root `<genericui:root>` DOM container,
- * document `data-bs-theme` attribute, top-level `<genericui:menubar>`, and [WebHtmlTemplateEngine] CDN resource injection.
+ * document `data-bs-theme` attribute, optional top-level `<genericui:menubar>` / `<genericui:navbar>` chrome,
+ * and [WebHtmlTemplateEngine] CDN resource injection.
  */
 class WebApplicationImpl(
     val templateEngine: WebHtmlTemplateEngine = WebHtmlTemplateEngine()

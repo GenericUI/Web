@@ -1,5 +1,6 @@
 package com.nexustools.genericui.web
 
+import com.nexustools.genericui.component.fragment.helper.FragmentHistoryBridge
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
@@ -48,6 +49,7 @@ class WebNativeFactory(
 
     init {
         ImageLoader.activeNativeCodec = WebBrowserImageCodecImpl()
+        FragmentHistoryBridge.factory = { WebFragmentHistoryBridge() }
     }
 
     // Shell & Window
@@ -109,6 +111,7 @@ class WebNativeFactory(
     override fun createTreeView(): TreeViewNativeImpl<*> = WebTreeViewImpl()
 
     // System Services
+    override fun createUiTimerScheduler(): UiTimerNativeImpl = WebUiTimerImpl()
     override fun createPermissionManager(): PermissionManagerNativeImpl = WebPermissionManagerImpl()
     override fun createSystemTray(): SystemTrayNativeImpl = WebSystemTrayImpl()
     override fun createNotificationManager(): NotificationManagerNativeImpl = WebNotificationManagerImpl()
@@ -118,4 +121,6 @@ class WebNativeFactory(
         WebUserDirectoryNativeImpl(appName = appName, subdirectory = subdirectory, scheme = "config")
     override fun createCacheDirectory(appName: String, subdirectory: String): UserDirectoryNativeImpl =
         WebUserDirectoryNativeImpl(appName = appName, subdirectory = subdirectory, scheme = "cache")
+    override fun createResourceResolver(): com.nexustools.genericui.resources.ResourceResolverNativeImpl =
+        WebResourceResolverImpl()
 }

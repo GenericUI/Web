@@ -271,8 +271,7 @@ genericui\:toolpaletteitem,
 genericui\:colorswatchbox,
 genericui\:breadcrumbitem,
 genericui\:buttongroup,
-genericui\:avatar,
-genericui\:currencypursebar {
+genericui\:avatar {
     display: inline-flex;
     box-sizing: border-box;
 }

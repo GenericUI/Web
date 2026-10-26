@@ -45,6 +45,10 @@ expect object WebBrowserDomBridge {
     fun registerWindowResize(onResize: (Int, Int) -> Unit)
     fun schedulePostLayoutPass(block: () -> Unit)
     fun scheduleTimeout(delayMs: Int, block: () -> Unit): Boolean
+    fun setTimeoutId(delayMs: Int, block: () -> Unit): Int
+    fun setIntervalId(intervalMs: Int, block: () -> Unit): Int
+    fun clearTimeoutId(timerId: Int): Boolean
+    fun clearIntervalId(timerId: Int): Boolean
 
     fun showAlert(message: String)
     fun showConfirm(message: String): Boolean
@@ -66,4 +70,13 @@ expect object WebBrowserDomBridge {
     fun localStorageClear(): Boolean
     fun localStorageKeys(): List<String>
     fun registerStorageListener(onStorageChanged: (key: String?, newValue: String?) -> Unit)
+
+    fun getLocationHash(): String
+    fun setLocationHash(hash: String)
+    fun historyPushState(routeHash: String, historyIndex: Int, title: String, stateJson: String?)
+    fun historyReplaceState(routeHash: String, historyIndex: Int, title: String, stateJson: String?)
+    fun historyBack(): Boolean
+    fun historyForward(): Boolean
+    fun getCurrentHistoryState(): Pair<Int?, String?>
+    fun registerPopStateListener(onPopState: (routeHash: String, historyIndex: Int?, stateJson: String?) -> Unit)
 }

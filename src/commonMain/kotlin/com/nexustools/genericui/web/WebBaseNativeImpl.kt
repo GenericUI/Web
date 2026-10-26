@@ -47,6 +47,8 @@ open class WebBaseNativeImpl(
     private var onPointerDownCallback: ((PointerEvent) -> Unit)? = null
     private var onPointerMoveCallback: ((PointerEvent) -> Unit)? = null
     private var onPointerUpCallback: ((PointerEvent) -> Unit)? = null
+    private var onPointerEnterCallback: ((PointerEvent) -> Unit)? = null
+    private var onPointerLeaveCallback: ((PointerEvent) -> Unit)? = null
     private var onWheelCallback: ((WheelEvent) -> Unit)? = null
     private var onKeyDownCallback: ((KeyEvent) -> Unit)? = null
     private var onKeyUpCallback: ((KeyEvent) -> Unit)? = null
@@ -79,6 +81,14 @@ open class WebBaseNativeImpl(
         nativeWidget.addEventListener("pointerup") { ev ->
             val pe = (ev as? PointerEvent) ?: PointerEvent(0f, 0f)
             onPointerUpCallback?.invoke(pe)
+        }
+        nativeWidget.addEventListener("mouseenter") { ev ->
+            val pe = (ev as? PointerEvent) ?: PointerEvent(0f, 0f)
+            onPointerEnterCallback?.invoke(pe)
+        }
+        nativeWidget.addEventListener("mouseleave") { ev ->
+            val pe = (ev as? PointerEvent) ?: PointerEvent(0f, 0f)
+            onPointerLeaveCallback?.invoke(pe)
         }
         nativeWidget.addEventListener("wheel") { ev ->
             val we = (ev as? WheelEvent) ?: WheelEvent(0f, 0f, 0f, 0f)
@@ -410,6 +420,8 @@ open class WebBaseNativeImpl(
     override fun setOnPointerDown(listener: ((PointerEvent) -> Unit)?) { onPointerDownCallback = listener }
     override fun setOnPointerMove(listener: ((PointerEvent) -> Unit)?) { onPointerMoveCallback = listener }
     override fun setOnPointerUp(listener: ((PointerEvent) -> Unit)?) { onPointerUpCallback = listener }
+    override fun setOnPointerEnter(listener: ((PointerEvent) -> Unit)?) { onPointerEnterCallback = listener }
+    override fun setOnPointerLeave(listener: ((PointerEvent) -> Unit)?) { onPointerLeaveCallback = listener }
     override fun setOnWheel(listener: ((WheelEvent) -> Unit)?) { onWheelCallback = listener }
     override fun setOnKeyDown(listener: ((KeyEvent) -> Unit)?) { onKeyDownCallback = listener }
     override fun setOnKeyUp(listener: ((KeyEvent) -> Unit)?) { onKeyUpCallback = listener }
