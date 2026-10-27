@@ -50,6 +50,7 @@ class WebNativeFactory(
     init {
         ImageLoader.activeNativeCodec = WebBrowserImageCodecImpl()
         FragmentHistoryBridge.factory = { WebFragmentHistoryBridge() }
+        WebApplicationImpl.installSystemThemeHooks()
     }
 
     // Shell & Window

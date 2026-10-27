@@ -326,15 +326,16 @@ actual object WebBrowserDomBridge {
 
     actual fun syncClassName(element: WebDomElement, className: String) {
         val peer: dynamic = element.browserPeer ?: return
-        peer.className = className
+        peer.className = element.getEffectiveDomClassName()
     }
 
-    actual fun syncStyle(element: WebDomElement, property: String, value: String?) {
+    actual fun syncStyle(element: WebDomElement, property: String, value: String?, important: Boolean) {
         val peer: dynamic = element.browserPeer ?: return
         if (value == null) {
             peer.style.removeProperty(property)
         } else {
-            peer.style.setProperty(property, value)
+            val priority = if (important) "important" else ""
+            peer.style.setProperty(property, value, priority)
         }
     }
 
@@ -498,6 +499,52 @@ actual object WebBrowserDomBridge {
         if (!isBrowserEnvironment) return
         val doc: dynamic = js("document")
         doc.documentElement?.setAttribute("data-bs-theme", theme)
+    }
+
+    actual fun syncBootstrapTheme(themeCssValue: String) {
+        if (!isBrowserEnvironment) return
+        val doc: dynamic = js("document")
+        doc.documentElement?.setAttribute("data-bs-theme", themeCssValue)
+        doc.body?.setAttribute("data-bs-theme", themeCssValue)
+    }
+
+    actual fun addStyleSheetLink(id: String, href: String) {
+        if (!isBrowserEnvironment) return
+        val doc: dynamic = js("document")
+        val head: dynamic = doc.head ?: return
+        var link: dynamic = doc.getElementById(id)
+        if (link == null) {
+            link = doc.createElement("link")
+            link.id = id
+            link.setAttribute("rel", "stylesheet")
+            link.setAttribute("href", href)
+            head.appendChild(link)
+        } else {
+            link.setAttribute("href", href)
+        }
+    }
+
+    actual fun removeStyleSheetLink(id: String) {
+        if (!isBrowserEnvironment) return
+        val doc: dynamic = js("document")
+        val link: dynamic = doc.getElementById(id)
+        if (link != null && link.parentNode != null) {
+            link.parentNode.removeChild(link)
+        }
+    }
+
+    actual fun isBrowserDarkMode(onSystemThemeChanged: ((Boolean) -> Unit)?): Boolean {
+        if (!isBrowserEnvironment) return true
+        val win: dynamic = js("window")
+        if (!(js("typeof win.matchMedia === 'function'") as Boolean)) return true
+        val mql: dynamic = win.matchMedia("(prefers-color-scheme: dark)") ?: return true
+        if (onSystemThemeChanged != null && js("typeof mql.addEventListener === 'function'") as Boolean) {
+            mql.addEventListener("change", { ev: dynamic ->
+                val matches = (ev?.matches as? Boolean) ?: true
+                onSystemThemeChanged(matches)
+            })
+        }
+        return (mql.matches as? Boolean) ?: true
     }
 
     actual fun triggerClick(element: WebDomElement): Boolean {

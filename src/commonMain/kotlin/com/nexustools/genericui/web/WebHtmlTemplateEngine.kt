@@ -1,6 +1,7 @@
 package com.nexustools.genericui.web
 
 import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.style.theme.SystemThemeDetector
 
 /**
  * Template engine and runtime CDN resource injector for the `:web` backend.
@@ -38,7 +39,7 @@ class WebHtmlTemplateEngine(
     fun renderIndexHtml(
         title: String = "GenericUI Web Application",
         lang: String = "en",
-        themeMode: ThemeMode = ThemeMode.DARK,
+        themeMode: ThemeMode = ThemeMode.AUTO,
         themeColor: String? = this.themeColor,
         rootContainerId: String = "genericui-app",
         appBundleScriptUrl: String? = null,
@@ -61,10 +62,8 @@ class WebHtmlTemplateEngine(
         manifestHash: String? = null,
         customTemplate: String = defaultHtmlTemplate
     ): String {
-        val bsTheme = when (themeMode) {
-            ThemeMode.LIGHT -> "light"
-            ThemeMode.DARK, ThemeMode.SYSTEM -> "dark"
-        }
+        val resolvedTheme = SystemThemeDetector.resolveTheme(themeMode)
+        val bsTheme = if (resolvedTheme == ThemeMode.LIGHT) "light" else "dark"
 
         val effectiveIconUrl = webIconUrl?.trim()?.takeIf { it.isNotEmpty() }
             ?: splash.iconUrl?.trim()?.takeIf { it.isNotEmpty() }

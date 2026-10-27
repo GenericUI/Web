@@ -99,13 +99,15 @@ class WebHtmlTemplateEngineTest {
     @Test
     fun testWebBaseNativeImplSpaceSeparatedPrefixAndComputedStyleTypedPrecedence() {
         val impl = WebBaseNativeImpl("div", "menu modal-panel")
-        assertTrue(impl.hasClass("menu"))
-        assertTrue(impl.hasClass("modal-panel"))
+        assertTrue(impl.nativeWidget.enumClassList.contains("menu"))
+        assertTrue(impl.nativeWidget.enumClassList.contains("modal-panel"))
+        assertFalse(impl.hasClass("menu"))
 
         impl.addClass("border")
         impl.setTextAlignment(com.nexustools.genericui.enums.bootstrap.TextAlignment.CENTER)
         assertTrue(impl.hasClass("border"))
-        assertTrue(impl.hasClass("text-center"))
+        assertFalse(impl.hasClass("text-center"))
+        assertTrue(impl.nativeWidget.enumClassList.contains("text-center"))
 
         val staleRawStyle = com.nexustools.genericui.style.css.ComputedStyle(
             transform = "translate(-50%, -50%) scale(1.5, 1.5)",

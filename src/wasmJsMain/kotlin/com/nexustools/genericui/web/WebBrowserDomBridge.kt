@@ -199,8 +199,8 @@ private external fun wasmSetId(peer: JsAny, id: String)
 @JsFun("(peer, cls) => { peer.className = cls; }")
 private external fun wasmSetClassName(peer: JsAny, cls: String)
 
-@JsFun("(peer, prop, val) => { peer.style.setProperty(prop, val); }")
-private external fun wasmSetStyle(peer: JsAny, prop: String, value: String)
+@JsFun("(peer, prop, val, priority) => { peer.style.setProperty(prop, val, priority); }")
+private external fun wasmSetStyle(peer: JsAny, prop: String, value: String, priority: String)
 
 @JsFun("(peer, prop) => { peer.style.removeProperty(prop); }")
 private external fun wasmRemoveStyle(peer: JsAny, prop: String)
@@ -292,6 +292,21 @@ private external fun wasmSetDocumentTitle(title: String)
 
 @JsFun("(theme) => { if (document.documentElement) document.documentElement.setAttribute('data-bs-theme', theme); }")
 private external fun wasmSetDocumentTheme(theme: String)
+
+@JsFun("(theme) => { if (document.documentElement) document.documentElement.setAttribute('data-bs-theme', theme); if (document.body) document.body.setAttribute('data-bs-theme', theme); }")
+private external fun wasmSyncBootstrapTheme(theme: String)
+
+@JsFun("(id, href) => { const head = document.head; if (!head) return; let link = document.getElementById(id); if (!link) { link = document.createElement('link'); link.id = id; link.setAttribute('rel', 'stylesheet'); link.setAttribute('href', href); head.appendChild(link); } else { link.setAttribute('href', href); } }")
+private external fun wasmAddStyleSheetLink(id: String, href: String)
+
+@JsFun("(id) => { const link = document.getElementById(id); if (link && link.parentNode) link.parentNode.removeChild(link); }")
+private external fun wasmRemoveStyleSheetLink(id: String)
+
+@JsFun("() => { if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true; const mql = window.matchMedia('(prefers-color-scheme: dark)'); return mql ? !!mql.matches : true; }")
+private external fun wasmQueryDarkMode(): Boolean
+
+@JsFun("(cb) => { if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return; const mql = window.matchMedia('(prefers-color-scheme: dark)'); if (mql && typeof mql.addEventListener === 'function') { mql.addEventListener('change', (ev) => { cb(ev ? !!ev.matches : true); }); } }")
+private external fun wasmObserveDarkMode(cb: (Boolean) -> Unit)
 
 @JsFun("(peer) => { if (typeof peer.click === 'function') { peer.click(); return true; } return false; }")
 private external fun wasmTriggerClick(peer: JsAny): Boolean
@@ -492,12 +507,16 @@ actual object WebBrowserDomBridge {
 
     actual fun syncClassName(element: WebDomElement, className: String) {
         val peer = element.browserPeer as? JsAny ?: return
-        wasmSetClassName(peer, className)
+        wasmSetClassName(peer, element.getEffectiveDomClassName())
     }
 
-    actual fun syncStyle(element: WebDomElement, property: String, value: String?) {
+    actual fun syncStyle(element: WebDomElement, property: String, value: String?, important: Boolean) {
         val peer = element.browserPeer as? JsAny ?: return
-        if (value == null) wasmRemoveStyle(peer, property) else wasmSetStyle(peer, property, value)
+        if (value == null) {
+            wasmRemoveStyle(peer, property)
+        } else {
+            wasmSetStyle(peer, property, value, if (important) "important" else "")
+        }
     }
 
     actual fun clearStyles(element: WebDomElement) {
@@ -610,6 +629,26 @@ actual object WebBrowserDomBridge {
 
     actual fun setDocumentTheme(theme: String) {
         if (isBrowserEnvironment) wasmSetDocumentTheme(theme)
+    }
+
+    actual fun syncBootstrapTheme(themeCssValue: String) {
+        if (isBrowserEnvironment) wasmSyncBootstrapTheme(themeCssValue)
+    }
+
+    actual fun addStyleSheetLink(id: String, href: String) {
+        if (isBrowserEnvironment) wasmAddStyleSheetLink(id, href)
+    }
+
+    actual fun removeStyleSheetLink(id: String) {
+        if (isBrowserEnvironment) wasmRemoveStyleSheetLink(id)
+    }
+
+    actual fun isBrowserDarkMode(onSystemThemeChanged: ((Boolean) -> Unit)?): Boolean {
+        if (!isBrowserEnvironment) return true
+        if (onSystemThemeChanged != null) {
+            wasmObserveDarkMode(onSystemThemeChanged)
+        }
+        return wasmQueryDarkMode()
     }
 
     actual fun triggerClick(element: WebDomElement): Boolean {

@@ -24,57 +24,115 @@ class WebDomElement(val tagName: String) {
             WebBrowserDomBridge.syncId(this, value)
         }
 
-    private val backingClassList = linkedSetOf<String>()
+    private val userClassList: MutableSet<String> = linkedSetOf()
+    private val backingEnumClassList: MutableSet<String> = linkedSetOf()
 
     val classList: MutableSet<String> = object : AbstractMutableSet<String>() {
         override val size: Int
-            get() = backingClassList.size
+            get() = userClassList.size
 
         override fun add(element: String): Boolean {
-            val added = backingClassList.add(element)
+            val trimmed = element.trim()
+            if (trimmed.isEmpty()) return false
+            val added = userClassList.add(trimmed)
             if (added) {
-                WebBrowserDomBridge.syncClassName(this@WebDomElement, className)
+                WebBrowserDomBridge.syncClassName(this@WebDomElement, getEffectiveDomClassName())
             }
             return added
         }
 
         override fun remove(element: String): Boolean {
-            val removed = backingClassList.remove(element)
+            val removed = userClassList.remove(element.trim())
             if (removed) {
-                WebBrowserDomBridge.syncClassName(this@WebDomElement, className)
+                WebBrowserDomBridge.syncClassName(this@WebDomElement, getEffectiveDomClassName())
             }
             return removed
         }
 
         override fun clear() {
-            if (backingClassList.isNotEmpty()) {
-                backingClassList.clear()
-                WebBrowserDomBridge.syncClassName(this@WebDomElement, "")
+            if (userClassList.isNotEmpty()) {
+                userClassList.clear()
+                WebBrowserDomBridge.syncClassName(this@WebDomElement, getEffectiveDomClassName())
             }
         }
 
         override fun iterator(): MutableIterator<String> {
-            val delegate = backingClassList.iterator()
+            val delegate = userClassList.iterator()
             return object : MutableIterator<String> {
                 override fun hasNext(): Boolean = delegate.hasNext()
                 override fun next(): String = delegate.next()
                 override fun remove() {
                     delegate.remove()
-                    WebBrowserDomBridge.syncClassName(this@WebDomElement, className)
+                    WebBrowserDomBridge.syncClassName(this@WebDomElement, getEffectiveDomClassName())
                 }
             }
         }
     }
 
+    val enumClasses: Set<String>
+        get() = backingEnumClassList.toSet()
+
+    val enumClassList: Set<String>
+        get() = backingEnumClassList.toSet()
+
+    fun setEnumClasses(classes: Collection<String>) {
+        backingEnumClassList.clear()
+        for (raw in classes) {
+            for (token in raw.trim().split(Regex("\\s+"))) {
+                if (token.isNotEmpty()) {
+                    backingEnumClassList.add(token)
+                }
+            }
+        }
+        WebBrowserDomBridge.syncClassName(this, getEffectiveDomClassName())
+    }
+
+    fun getEffectiveDomClassName(): String =
+        (backingEnumClassList + userClassList).joinToString(" ")
+
+    fun addClass(className: String) {
+        var changed = false
+        for (token in className.trim().split(Regex("\\s+"))) {
+            if (token.isNotEmpty() && userClassList.add(token)) {
+                changed = true
+            }
+        }
+        if (changed) {
+            WebBrowserDomBridge.syncClassName(this, getEffectiveDomClassName())
+        }
+    }
+
+    fun removeClass(className: String) {
+        var changed = false
+        for (token in className.trim().split(Regex("\\s+"))) {
+            if (token.isNotEmpty() && userClassList.remove(token)) {
+                changed = true
+            }
+        }
+        if (changed) {
+            WebBrowserDomBridge.syncClassName(this, getEffectiveDomClassName())
+        }
+    }
+
+    fun hasClass(className: String): Boolean {
+        val trimmed = className.trim()
+        return trimmed.isNotEmpty() && trimmed in userClassList
+    }
+
+    fun setClassName(value: String) {
+        userClassList.clear()
+        value.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach { userClassList.add(it) }
+        WebBrowserDomBridge.syncClassName(this, getEffectiveDomClassName())
+    }
+
     var className: String
-        get() = backingClassList.joinToString(" ")
+        get() = userClassList.joinToString(" ")
         set(value) {
-            backingClassList.clear()
-            value.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach { backingClassList.add(it) }
-            WebBrowserDomBridge.syncClassName(this, className)
+            setClassName(value)
         }
 
     private val backingStyle = linkedMapOf<String, String>()
+    private val styleImportantProps = mutableSetOf<String>()
 
     val style: MutableMap<String, String> = object : AbstractMutableMap<String, String>() {
         override val entries: MutableSet<MutableMap.MutableEntry<String, String>>
@@ -82,31 +140,51 @@ class WebDomElement(val tagName: String) {
 
         override fun put(key: String, value: String): String? {
             val prev = backingStyle.put(key, value)
+            styleImportantProps.remove(key.trim().lowercase())
             if (prev != value) {
-                WebBrowserDomBridge.syncStyle(this@WebDomElement, key, value)
+                WebBrowserDomBridge.syncStyle(this@WebDomElement, key, value, false)
             }
             return prev
         }
 
         override fun remove(key: String): String? {
             val prev = backingStyle.remove(key)
-            WebBrowserDomBridge.syncStyle(this@WebDomElement, key, null)
+            styleImportantProps.remove(key.trim().lowercase())
+            WebBrowserDomBridge.syncStyle(this@WebDomElement, key, null, false)
             return prev
         }
 
         override fun clear() {
             backingStyle.clear()
+            styleImportantProps.clear()
             WebBrowserDomBridge.clearStyles(this@WebDomElement)
         }
     }
 
-    fun setStyle(key: String, value: String?) {
+    fun setStyle(property: String, value: String?, important: Boolean = false) {
+        val cleanProp = property.trim()
+        val lowerProp = cleanProp.lowercase()
         if (value == null) {
-            style.remove(key)
+            backingStyle.remove(cleanProp)
+            backingStyle.remove(lowerProp)
+            styleImportantProps.remove(lowerProp)
+            WebBrowserDomBridge.syncStyle(this, cleanProp, null, false)
         } else {
-            style[key] = value
+            backingStyle[cleanProp] = value
+            if (important) {
+                styleImportantProps.add(lowerProp)
+            } else {
+                styleImportantProps.remove(lowerProp)
+            }
+            WebBrowserDomBridge.syncStyle(this, cleanProp, value, important)
         }
     }
+
+    fun getStyle(property: String): String? =
+        backingStyle[property] ?: backingStyle[property.trim().lowercase()]
+
+    fun isStyleImportant(property: String): Boolean =
+        property.trim().lowercase() in styleImportantProps
 
     val attributes: MutableMap<String, String> = linkedMapOf()
     val children: MutableList<WebDomElement> = mutableListOf()
@@ -345,6 +423,54 @@ class WebDomElement(val tagName: String) {
         dispatchEvent("touchend", "$x,$y")
         return triggered
     }
+
+    fun toOuterHtml(indent: String = ""): String = buildString {
+        val attrs = mutableListOf<String>()
+        if (id.isNotEmpty()) {
+            attrs.add("id=\"${escapeHtmlAttr(id)}\"")
+        }
+        val effectiveClasses = getEffectiveDomClassName()
+        if (effectiveClasses.isNotEmpty()) {
+            attrs.add("class=\"${escapeHtmlAttr(effectiveClasses)}\"")
+        }
+        if (backingStyle.isNotEmpty()) {
+            val inlineCss = backingStyle.entries.joinToString("; ") { (k, v) ->
+                if (isStyleImportant(k)) "$k: $v !important" else "$k: $v"
+            }
+            attrs.add("style=\"${escapeHtmlAttr(inlineCss)}\"")
+        }
+        for ((k, v) in attributes) {
+            if (k != "id" && k != "class" && k != "style") {
+                attrs.add("$k=\"${escapeHtmlAttr(v)}\"")
+            }
+        }
+        if (disabled && !attributes.containsKey("disabled")) {
+            attrs.add("disabled=\"disabled\"")
+        }
+
+        val attrSuffix = if (attrs.isEmpty()) "" else " " + attrs.joinToString(" ")
+        append("$indent<$tagName$attrSuffix>")
+
+        if (innerHTML.isNotEmpty()) {
+            append(innerHTML)
+        } else if (children.isNotEmpty()) {
+            for (child in children) {
+                append(child.toOuterHtml())
+            }
+        } else if (textContent.isNotEmpty()) {
+            append(escapeHtmlText(textContent))
+        }
+
+        append("</$tagName>")
+    }
+
+    private fun escapeHtmlText(text: String): String =
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+
+    private fun escapeHtmlAttr(value: String): String =
+        escapeHtmlText(value).replace("\"", "&quot;")
 
     companion object {
         const val LONG_PRESS_THRESHOLD_MS: Int = 500

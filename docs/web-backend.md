@@ -1,7 +1,7 @@
 # `:web` Backend Architecture (`jsMain` & `wasmJsMain`)
 
 ## Overview
-`:web` implements the complete GenericUI widget, container, dialog, window, navigation history, and system service contract for modern web browsers using Kotlin/JS (`jsMain`) and Kotlin/Wasm (`wasmJsMain`). It depends on `:common` and `:systemCommon`.
+`:web` implements the complete GenericUI widget, container, dialog, window, styling, navigation history, and system service contract for modern web browsers using Kotlin/Wasm (`wasmJsMain`) and Kotlin/JS (`jsMain`). It depends on `:common` and `:systemCommon`.
 
 ---
 
@@ -10,12 +10,14 @@
 ```text
 web/
 ├── src/commonMain/kotlin/com/nexustools/genericui/web/
-│   ├── WebLauncher.kt                  # Entry point invoked by generated jsMain/wasmJsMain launchers
+│   ├── WebLauncher.kt                  # Launcher invoked by generated jsMain/wasmJsMain entry points
 │   ├── WebNativeBootstrap.kt           # Provider registration + WebFragmentHistoryBridge setup
+│   ├── WebDomElement.kt                # DOM abstraction separating userClassList and enumClassList + !important styles
+│   ├── WebStyleSheetManager.kt         # Manages <link rel="stylesheet" href="..."> in document.head
 │   ├── WebFragmentHistoryBridge.kt     # #hash + window.history.state integration for FragmentHostFragment
-│   ├── WebBrowserDomBridge.kt          # Expect/actual bridge to browser DOM, History, and Storage APIs
+│   ├── WebBrowserDomBridge.kt          # Expect/actual bridge to browser DOM, History, matchMedia, and Storage APIs
 │   ├── WebDomMountEngine.kt            # Reconciles virtual DOM nodes and mounts into #genericui-root
-│   ├── WebBaseNativeImpl.kt            # Base web widget (DOM tag, classes, inline styles, mountedInTitleBar)
+│   ├── WebBaseNativeImpl.kt            # Base web widget (ComponentStyle, ComponentBootstrap, CssCustomCursor)
 │   ├── WebBaseContainerNativeImpl.kt   # Base web container
 │   ├── WebWindowImpl.kt                # Browser viewport window + 4-state Navbar/MenuBar chrome
 │   ├── WebNavbarImpl.kt                # Bootstrap 5 <nav class="navbar"> renderer
@@ -26,6 +28,19 @@ web/
 ├── src/jsMain/kotlin/                  # Kotlin/JS actuals for WebBrowserDomBridge
 └── src/wasmJsMain/kotlin/              # Kotlin/Wasm actuals for WebBrowserDomBridge
 ```
+
+---
+
+## Strict User CSS Class Isolation (`WebDomElement`) & Styling Architecture
+
+| Feature | Implementation in `:web` |
+|---------|--------------------------|
+| **User CSS Class Isolation** | `WebDomElement` stores user classes in `userClassList` and `ComponentBootstrap` enum classes in `enumClassList`. `addClass`, `removeClass`, `hasClass`, `getClasses()`, `getClass()`, and `className` inspect/modify **only** `userClassList`. `getEffectiveDomClassName()` combines `enumClassList + userClassList` solely when writing the DOM `class` attribute. |
+| **`ComponentBootstrap` (`getBootstrap()`)** | Maps `BootstrapType` (`BootstrapType.NONE` default), `BootstrapSize`, `BootstrapWidth`, `BootstrapHeight`, `SpacingScale`, `FlexDirection`, `JustifyContent`, `AlignItems`, `BorderRadiusStyle`, `ShadowElevation`, etc. into `WebDomElement.enumClassList`. |
+| **`ComponentStyle` (`getStyle()`) & `!important`** | Maps all standard W3C CSS properties (`backgroundColor`, `color`, `accentColor` / `accent-color`, `border*`, `margin*`, `padding*`, `width`/`height`, `flex*`, `gap`, `transform`, `transition`, `filter`, `backdropFilter`, etc.) to `WebDomElement.setStyle(property, value, important)`. |
+| **Custom Cursors (`CssCustomCursor`)** | Translates `CssCustomCursor` (`ResourceID`, SVG, or `ImageBuffer` + `hotspotX`, `hotspotY`, `fallback`) into `url("...") <hotspotX> <hotspotY>, <fallback>` on `WebDomElement.style["cursor"]`. |
+| **Stylesheets (`WebStyleSheetManager`)** | `IApplication.addStyleSheet` / `removeStyleSheet` (accepting `String` path, `ResourceID` `R.style.<name>`, or `PrecompiledStyleSheet`) normalizes `.scss`/`.sass` paths to `.css` and adds/removes `<link rel="stylesheet" href="...">` in `document.head`. |
+| **Theming (`ThemeMode.AUTO` Default)** | `IApplication.setTheme` / `getTheme` / `getResolvedTheme` defaults to `ThemeMode.AUTO`, listens to `window.matchMedia("(prefers-color-scheme: dark)")`, and sets `document.documentElement.setAttribute("data-bs-theme", "light" \| "dark")`. |
 
 ---
 
@@ -54,14 +69,3 @@ Because the browser itself owns the window titlebar and tab bar, `WebWindowImpl.
 | `TitleBar` | `MenuBar` | Single merged `<nav class="navbar navbar-expand">` with `TitleBar` (icon, title, leading, center) on the left and `MenuBar` dropdowns + trailing components on the right |
 
 All custom components attached to `TitleBar` (`leadingComponents`, `centerComponents`, `trailingComponents`) have `mountedInTitleBar = true` set on their `WebBaseNativeImpl` so `WebDomMountEngine` renders them inside `<nav class="navbar">` and filters them out of the window body container.
-
----
-
-## System Services (`com.nexustools.genericui.web.system`)
-
-- **`WebResourceResolverImpl`**: Maps `ResourceId` entries to `"assets/${resId.type.directoryName}/$fileName"` URLs and resolves localized strings, colors, dimensions, and raw bytes.
-- **`WebPreferenceStoreImpl`**: Persists key-value and typed `@PreferenceObject` preferences in `window.localStorage` using `SystemStorageKeyHelper` (`<appId>:<key>`).
-- **`WebKeystoreImpl`**: Web Crypto API (`SubtleCrypto` AES-GCM) encrypted storage backed by `IndexedDB` / `localStorage`.
-- **`WebClipboardImpl`**: Browser `navigator.clipboard.readText()` / `writeText()`.
-- **`WebNetworkMonitorImpl`**: Browser `navigator.onLine` and `online` / `offline` window events.
-- **`WebNotificationManagerImpl`**: HTML5 `Notification` API (`Notification.requestPermission()`).

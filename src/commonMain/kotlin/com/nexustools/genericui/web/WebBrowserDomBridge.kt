@@ -13,8 +13,8 @@ expect object WebBrowserDomBridge {
     fun syncElementTree(element: WebDomElement)
 
     fun syncId(element: WebDomElement, id: String)
-    fun syncClassName(element: WebDomElement, className: String)
-    fun syncStyle(element: WebDomElement, property: String, value: String?)
+    fun syncClassName(element: WebDomElement, className: String = element.getEffectiveDomClassName())
+    fun syncStyle(element: WebDomElement, property: String, value: String?, important: Boolean = false)
     fun clearStyles(element: WebDomElement)
     fun syncAttribute(element: WebDomElement, name: String, value: String?)
     fun syncTextContent(element: WebDomElement, text: String)
@@ -41,6 +41,11 @@ expect object WebBrowserDomBridge {
 
     fun setDocumentTitle(title: String)
     fun setDocumentTheme(theme: String)
+    fun syncBootstrapTheme(themeCssValue: String)
+    fun addStyleSheetLink(id: String, href: String)
+    fun removeStyleSheetLink(id: String)
+    fun isBrowserDarkMode(onSystemThemeChanged: ((Boolean) -> Unit)? = null): Boolean
+
     fun triggerClick(element: WebDomElement): Boolean
     fun registerWindowResize(onResize: (Int, Int) -> Unit)
     fun schedulePostLayoutPass(block: () -> Unit)

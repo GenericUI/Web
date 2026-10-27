@@ -5,7 +5,6 @@ import com.nexustools.genericui.event.KeyShortcut
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -23,8 +22,10 @@ class WebBackendTest {
 
         app.setThemeMode(ThemeMode.LIGHT)
         assertFalse(app.nativeApplication.hasAttribute("data-bs-theme"))
+        assertEquals("light", app.appliedBootstrapTheme)
         app.setThemeMode(ThemeMode.DARK)
         assertFalse(app.nativeApplication.hasAttribute("data-bs-theme"))
+        assertEquals("dark", app.appliedBootstrapTheme)
 
         val html = app.renderIndexHtml(
             title = "Studio Web App",
@@ -67,16 +68,16 @@ class WebBackendTest {
         val window = factory.createWindow() as WebWindowImpl
 
         assertEquals("genericui:window", window.nativeWidget.tagName)
-        assertTrue(window.nativeWidget.classList.contains("genericui-window"))
+        assertTrue(window.nativeWidget.enumClassList.contains("genericui-window"))
 
         window.showWindow()
         assertTrue(app.nativeApplication.children.contains(window.nativeWidget))
 
         val menuBar = factory.createMenuBar() as WebMenuBarImpl
         assertEquals("genericui:menubar", menuBar.nativeWidget.tagName)
-        assertTrue(menuBar.nativeWidget.classList.contains("navbar"))
-        assertTrue(menuBar.nativeWidget.classList.contains("navbar-expand"))
-        assertTrue(menuBar.nativeWidget.classList.contains("genericui-menubar"))
+        assertTrue(menuBar.nativeWidget.enumClassList.contains("navbar"))
+        assertTrue(menuBar.nativeWidget.enumClassList.contains("navbar-expand"))
+        assertTrue(menuBar.nativeWidget.enumClassList.contains("genericui-menubar"))
         assertEquals("menubar", menuBar.nativeWidget.getAttribute("role"))
 
         val fileMenu = factory.createMenu() as WebMenuImpl
@@ -92,7 +93,7 @@ class WebBackendTest {
 
         val separator = factory.createDivider() as WebDividerImpl
         assertEquals("hr", separator.nativeWidget.tagName)
-        assertTrue(separator.nativeWidget.classList.contains("dropdown-divider"))
+        assertTrue(separator.nativeWidget.enumClassList.contains("dropdown-divider"))
 
         val checkItem = factory.createMenuItem(checkable = true, radio = false) as WebMenuItemImpl
         checkItem.setLabel("Show Grid")
@@ -169,8 +170,8 @@ class WebBackendTest {
 
         val contextMenu = factory.createContextMenu() as WebContextMenuImpl
         assertEquals("genericui:contextmenu", contextMenu.nativeWidget.tagName)
-        assertTrue(contextMenu.nativeWidget.classList.contains("dropdown-menu"))
-        assertTrue(contextMenu.nativeWidget.classList.contains("genericui-context-menu"))
+        assertTrue(contextMenu.nativeWidget.enumClassList.contains("dropdown-menu"))
+        assertTrue(contextMenu.nativeWidget.enumClassList.contains("genericui-context-menu"))
 
         val copyItem = factory.createMenuItem(checkable = false, radio = false) as WebMenuItemImpl
         copyItem.setLabel("Copy")

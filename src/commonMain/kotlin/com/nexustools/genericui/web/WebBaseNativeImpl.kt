@@ -8,7 +8,11 @@ import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.style.bootstrap.ComponentBootstrap
+import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssCursorValue
+import com.nexustools.genericui.style.gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.CssTransitionSpec
@@ -17,29 +21,27 @@ import com.nexustools.genericui.style.transition.CssTransitionSpec
  * Base [NativeImpl] for the `:web` backend.
  *
  * Per the dual-mode styling architecture:
- * - Applies CSS classes directly to [nativeWidget]'s `classList` (`setClass`, `getClass`, `addClass`, `removeClass`, `hasClass`).
- * - Simulates the Bootstrap Enum getters (`getType`, `getSize`, etc.) and setters (`setType`, `setSize`, etc.)
- *   by parsing/updating the DOM element's CSS class list via [BootstrapClassMapper].
+ * - Applies user-added CSS classes strictly to [nativeWidget]'s `classList` (`setClass`, `getClass`, `getClasses`, `addClass`, `removeClass`, `hasClass`).
+ * - Applies Bootstrap Enum classes (`ComponentBootstrap`, `setType`, `setSize`, etc.) to [nativeWidget]'s
+ *   `enumClassList` (`setEnumClasses`) via [BootstrapClassMapper], keeping them 100% invisible to `getClasses()` / `hasClass()`.
  */
 open class WebBaseNativeImpl(
     tagName: String = "div",
     override val componentClassPrefix: String = ""
 ) : NativeImpl<WebDomElement> {
 
-    override val nativeWidget: WebDomElement = WebDomElement(tagName).also {
-        val prefix = componentClassPrefix.trim()
-        if (prefix.isNotEmpty()) {
-            prefix.split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach { token ->
-                it.classList.add(token)
-            }
-        }
-    }
+    override val nativeWidget: WebDomElement = WebDomElement(tagName)
+
+    protected var styleSnapshot: BootstrapStyleSnapshot =
+        BootstrapStyleSnapshot(componentPrefix = componentClassPrefix)
+    private var bootstrapState: ComponentBootstrap? = null
 
     private var visibleFlag: Boolean = true
     private var enabledFlag: Boolean = true
     private var opacityValue: Float = 1.0f
     private var tooltipValue: String? = null
     private var preferredSizeValue: Size? = null
+    private var backgroundGradientValue: Gradient? = null
 
     private var onClickCallback: (() -> Unit)? = null
     private var onDoubleClickCallback: (() -> Unit)? = null
@@ -68,6 +70,7 @@ open class WebBaseNativeImpl(
     }
 
     init {
+        syncBootstrapClasses()
         nativeWidget.addEventListener("click") { onClickCallback?.invoke() }
         nativeWidget.addEventListener("dblclick") { onDoubleClickCallback?.invoke() }
         nativeWidget.addEventListener("pointerdown") { ev ->
@@ -104,41 +107,62 @@ open class WebBaseNativeImpl(
         }
     }
 
+    protected fun syncBootstrapClasses() {
+        val enumClasses = linkedSetOf<String>()
+        val prefix = componentClassPrefix.trim()
+        if (prefix.isNotEmpty() && prefix != "btn") {
+            prefix.split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach { enumClasses.add(it) }
+        }
+        val normalizedSnapshot = styleSnapshot.copy(type = styleSnapshot.type?.takeIf { it != BootstrapType.NONE })
+        enumClasses.addAll(BootstrapClassMapper.toEnumClassSet(normalizedSnapshot))
+        enumClasses.removeAll { it.endsWith("-") }
+        if (!enabledFlag) {
+            enumClasses.add("disabled")
+        }
+        nativeWidget.setEnumClasses(enumClasses)
+    }
+
     protected fun currentSnapshot(): BootstrapStyleSnapshot =
-        BootstrapClassMapper.fromClassString(nativeWidget.className, componentClassPrefix)
+        styleSnapshot.copy(customClasses = nativeWidget.classList.toSet())
 
     protected fun applySnapshot(snapshot: BootstrapStyleSnapshot) {
-        nativeWidget.className = BootstrapClassMapper.toClassString(snapshot)
+        styleSnapshot = snapshot.copy(componentPrefix = componentClassPrefix)
+        syncBootstrapClasses()
+    }
+
+    override fun applyComponentBootstrap(bootstrap: ComponentBootstrap) {
+        bootstrapState = bootstrap
+        styleSnapshot = bootstrap.applyToSnapshot(styleSnapshot)
+        syncBootstrapClasses()
     }
 
     override fun setClass(className: String) {
-        nativeWidget.className = className
+        nativeWidget.setClassName(className)
     }
 
     override fun getClass(): String = nativeWidget.className
 
+    override fun getClasses(): Set<String> = nativeWidget.classList.toSet()
+
     override fun addClass(className: String) {
-        className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach {
-            nativeWidget.classList.add(it)
-        }
-    }
-
-    private val appliedComputedStyleKeys = mutableSetOf<String>()
-
-    private fun setComputedStyleProp(key: String, value: String) {
-        appliedComputedStyleKeys.add(key)
-        nativeWidget.style[key] = value
+        nativeWidget.addClass(className)
     }
 
     override fun removeClass(className: String) {
-        className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach {
-            nativeWidget.classList.remove(it)
-        }
+        nativeWidget.removeClass(className)
         WebWindowImpl.scheduleLayoutRefresh()
     }
 
     override fun hasClass(className: String): Boolean =
-        nativeWidget.classList.contains(className.trim())
+        nativeWidget.hasClass(className)
+
+    private val appliedComputedStyleKeys = mutableSetOf<String>()
+    private val appliedComponentStyleKeys = mutableSetOf<String>()
+
+    private fun setComputedStyleProp(key: String, value: String, important: Boolean = false) {
+        appliedComputedStyleKeys.add(key)
+        nativeWidget.setStyle(key, value, important)
+    }
 
     override fun setType(type: BootstrapType?) = applySnapshot(currentSnapshot().copy(type = type))
     override fun getType(): BootstrapType? = currentSnapshot().type
@@ -209,9 +233,11 @@ open class WebBaseNativeImpl(
     override fun setVisible(visible: Boolean) {
         visibleFlag = visible
         if (visible) {
-            nativeWidget.style.remove("display")
+            if ("display" !in appliedComponentStyleKeys && "display" !in appliedComputedStyleKeys) {
+                nativeWidget.setStyle("display", null, false)
+            }
         } else {
-            nativeWidget.style["display"] = "none"
+            nativeWidget.setStyle("display", "none", false)
         }
     }
 
@@ -220,21 +246,17 @@ open class WebBaseNativeImpl(
     override fun setEnabled(enabled: Boolean) {
         enabledFlag = enabled
         nativeWidget.disabled = !enabled
-        if (enabled) {
-            nativeWidget.classList.remove("disabled")
-        } else {
-            nativeWidget.classList.add("disabled")
-        }
+        syncBootstrapClasses()
     }
 
     override fun isEnabled(): Boolean = enabledFlag
 
     override fun setOpacity(opacity: Float) {
         opacityValue = opacity.coerceIn(0f, 1f)
-        if (opacityValue >= 1.0f) {
-            nativeWidget.style.remove("opacity")
+        if (opacityValue >= 1.0f && "opacity" !in appliedComponentStyleKeys) {
+            nativeWidget.setStyle("opacity", null, false)
         } else {
-            nativeWidget.style["opacity"] = opacityValue.toString()
+            nativeWidget.setStyle("opacity", opacityValue.toString(), false)
         }
     }
 
@@ -263,20 +285,24 @@ open class WebBaseNativeImpl(
         preferredSizeValue = size
         if (size != null) {
             if (size.width > 0) {
-                nativeWidget.style["width"] = "${size.width}px"
+                nativeWidget.setStyle("width", "${size.width}px", false)
                 nativeWidget.clientWidth = size.width
-            } else if ("width" !in appliedComputedStyleKeys) {
-                nativeWidget.style.remove("width")
+            } else if ("width" !in appliedComputedStyleKeys && "width" !in appliedComponentStyleKeys) {
+                nativeWidget.setStyle("width", null, false)
             }
             if (size.height > 0) {
-                nativeWidget.style["height"] = "${size.height}px"
+                nativeWidget.setStyle("height", "${size.height}px", false)
                 nativeWidget.clientHeight = size.height
-            } else if ("height" !in appliedComputedStyleKeys) {
-                nativeWidget.style.remove("height")
+            } else if ("height" !in appliedComputedStyleKeys && "height" !in appliedComponentStyleKeys) {
+                nativeWidget.setStyle("height", null, false)
             }
         } else {
-            if ("width" !in appliedComputedStyleKeys) nativeWidget.style.remove("width")
-            if ("height" !in appliedComputedStyleKeys) nativeWidget.style.remove("height")
+            if ("width" !in appliedComputedStyleKeys && "width" !in appliedComponentStyleKeys) {
+                nativeWidget.setStyle("width", null, false)
+            }
+            if ("height" !in appliedComputedStyleKeys && "height" !in appliedComponentStyleKeys) {
+                nativeWidget.setStyle("height", null, false)
+            }
         }
     }
 
@@ -290,17 +316,71 @@ open class WebBaseNativeImpl(
 
     override fun setPadding(padding: EdgeInsets) {
         if (padding == EdgeInsets.ZERO) {
-            nativeWidget.style.remove("padding")
+            if ("padding" !in appliedComponentStyleKeys) {
+                nativeWidget.setStyle("padding", null, false)
+            }
         } else {
-            nativeWidget.style["padding"] = "${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px"
+            nativeWidget.setStyle(
+                "padding",
+                "${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px",
+                false
+            )
         }
     }
 
     override fun setMargin(margin: EdgeInsets) {
         if (margin == EdgeInsets.ZERO) {
-            nativeWidget.style.remove("margin")
+            if ("margin" !in appliedComponentStyleKeys) {
+                nativeWidget.setStyle("margin", null, false)
+            }
         } else {
-            nativeWidget.style["margin"] = "${margin.top}px ${margin.right}px ${margin.bottom}px ${margin.left}px"
+            nativeWidget.setStyle(
+                "margin",
+                "${margin.top}px ${margin.right}px ${margin.bottom}px ${margin.left}px",
+                false
+            )
+        }
+    }
+
+    override fun setBackgroundGradient(gradient: Gradient?) {
+        backgroundGradientValue = gradient
+        if (gradient != null) {
+            nativeWidget.setStyle("background-image", gradient.toCssString(), nativeWidget.isStyleImportant("background-image"))
+        } else if ("background-image" !in appliedComponentStyleKeys && "background-image" !in appliedComputedStyleKeys) {
+            nativeWidget.setStyle("background-image", null, false)
+        }
+    }
+
+    override fun getBackgroundGradient(): Gradient? = backgroundGradientValue
+
+    override fun setCustomCursor(cursor: CssCursorValue?) {
+        if (cursor != null) {
+            val isImp = nativeWidget.isStyleImportant("cursor")
+            nativeWidget.setStyle("cursor", cursor.toCssString(), isImp)
+        } else if ("cursor" !in appliedComponentStyleKeys && "cursor" !in appliedComputedStyleKeys) {
+            nativeWidget.setStyle("cursor", null, false)
+        }
+    }
+
+    override fun applyComponentStyle(style: ComponentStyle) {
+        val newProps = style.toCssPropertyMap()
+        val removedKeys = appliedComponentStyleKeys.filter { it !in newProps }
+        for (oldKey in removedKeys) {
+            appliedComponentStyleKeys.remove(oldKey)
+            appliedComputedStyleKeys.remove(oldKey)
+            nativeWidget.setStyle(oldKey, null, false)
+        }
+        for ((prop, pair) in newProps) {
+            val (value, isImp) = pair
+            appliedComponentStyleKeys.add(prop)
+            nativeWidget.setStyle(prop, value, isImp)
+        }
+        preferredSizeValue?.let { size ->
+            if (size.width > 0 && "width" !in newProps) nativeWidget.setStyle("width", "${size.width}px", false)
+            if (size.height > 0 && "height" !in newProps) nativeWidget.setStyle("height", "${size.height}px", false)
+        }
+        if (!visibleFlag) {
+            nativeWidget.setStyle("display", "none", false)
         }
     }
 
@@ -356,21 +436,21 @@ open class WebBaseNativeImpl(
             putProp("pointer-events", "none")
         }
 
-        val removedKeys = appliedComputedStyleKeys.filter { it !in newProps }
+        val removedKeys = appliedComputedStyleKeys.filter { it !in newProps && it !in appliedComponentStyleKeys }
         for (oldKey in removedKeys) {
             appliedComputedStyleKeys.remove(oldKey)
-            nativeWidget.style.remove(oldKey)
+            nativeWidget.setStyle(oldKey, null, false)
         }
         for ((k, v) in newProps) {
-            setComputedStyleProp(k, v)
+            setComputedStyleProp(k, v, k in style.importantProperties)
         }
 
         preferredSizeValue?.let { size ->
-            if (size.width > 0) nativeWidget.style["width"] = "${size.width}px"
-            if (size.height > 0) nativeWidget.style["height"] = "${size.height}px"
+            if (size.width > 0 && "width" !in newProps) nativeWidget.setStyle("width", "${size.width}px", false)
+            if (size.height > 0 && "height" !in newProps) nativeWidget.setStyle("height", "${size.height}px", false)
         }
         if (!visibleFlag) {
-            nativeWidget.style["display"] = "none"
+            nativeWidget.setStyle("display", "none", false)
         }
     }
 
@@ -378,9 +458,9 @@ open class WebBaseNativeImpl(
 
     override fun configureNativeTransitions(specs: List<CssTransitionSpec>) {
         if (specs.isEmpty()) {
-            nativeWidget.style.remove("transition")
+            nativeWidget.setStyle("transition", null, false)
         } else {
-            nativeWidget.style["transition"] = specs.joinToString(", ") { spec ->
+            val css = specs.joinToString(", ") { spec ->
                 val tf = if (spec.timingFunction.isLinear) {
                     "linear"
                 } else {
@@ -388,6 +468,7 @@ open class WebBaseNativeImpl(
                 }
                 "${spec.property} ${spec.durationMs}ms $tf ${spec.delayMs}ms"
             }
+            nativeWidget.setStyle("transition", css, false)
         }
     }
 
@@ -398,7 +479,7 @@ open class WebBaseNativeImpl(
         spec: CssTransitionSpec,
         onComplete: () -> Unit
     ): Boolean {
-        nativeWidget.style[property] = toValue
+        nativeWidget.setStyle(property, toValue, false)
         return true
     }
 
