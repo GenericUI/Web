@@ -15,13 +15,18 @@ import com.nexustools.genericui.window.WindowConfiguration
 /**
  * Web implementation of [WindowNativeImpl].
  *
- * Implements the 4-state Web chrome rules:
+ * Implements the 4-state Web chrome rules for the main window:
  * - Neither `TitleBar` nor `MenuBar` (`titleBar == null && menuBar == null`): renders no navbar/titlebar chrome at all.
  * - `MenuBar` only (`titleBar == null && menuBar != null`): renders only the menubar (no titlebar navbar).
  * - `TitleBar` only (`titleBar != null && menuBar == null`): renders a Bootstrap navbar with the titlebar's icon,
  *   title, and leading/center/trailing components (detached from any body parent so they appear only once).
  * - `TitleBar` + `MenuBar` (`titleBar != null && menuBar != null`): renders a Bootstrap navbar with the title, icon,
  *   and leading/center components on the left and the `MenuBar` + trailing components on the right.
+ *
+ * All non-main windows (`data-tool-modal="true"` or secondary windows opened while a primary window is active)
+ * render as centered Bootstrap `.modal` overlays with `.modal-dialog.modal-dialog-centered.modal-dialog-scrollable`
+ * -> `.modal-content` -> `.modal-header` + `.modal-body`, semi-transparent black backdrop, and focus trapping
+ * when blocking focus to the main app.
  */
 class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-window"), WindowNativeImpl<WebDomElement> {
     override val supportsCustomTitleBar: Boolean = true
@@ -62,6 +67,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
     )
     private var windowState: WindowState = WindowState.NORMAL
     private var fullscreenFlag: Boolean = false
+    private var fullscreenElementImpl: NativeImpl<*>? = null
     private var pipActive: Boolean = false
 
     private var titleBarInstructions: TitleBar? = null
@@ -84,7 +90,47 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
     }
     private val bottomNavSlot = WebDomElement("footer").apply { classList.add("genericui-window-bottomnav-slot") }
 
+    // Bootstrap modal wrapper elements used when this window is a non-main / tool-modal window
+    private var isNonMainModalWindow: Boolean = false
+    val modalDialog = WebDomElement("div").apply {
+        classList.addAll(listOf("modal-dialog", "modal-dialog-centered", "modal-dialog-scrollable"))
+        style["width"] = "100%"
+        style["max-width"] = "min(720px, calc(100vw - 1rem))"
+        style["margin"] = "auto"
+        style["pointer-events"] = "auto"
+    }
+    val modalContent = WebDomElement("div").apply {
+        classList.addAll(listOf("modal-content", "shadow-lg"))
+        style["width"] = "100%"
+        style["max-height"] = "calc(100dvh - 1rem)"
+        style["overflow"] = "hidden"
+        style["display"] = "flex"
+        style["flex-direction"] = "column"
+    }
+    val modalHeader = WebDomElement("div").apply {
+        classList.addAll(listOf("modal-header", "py-2", "px-3"))
+        style["flex-shrink"] = "0"
+    }
+    val modalTitleElement = WebDomElement("h5").apply {
+        classList.addAll(listOf("modal-title", "fs-6", "fw-semibold", "mb-0"))
+    }
+    val modalCloseButton = WebDomElement("button").apply {
+        setAttribute("type", "button")
+        classList.add("btn-close")
+        setAttribute("data-bs-dismiss", "modal")
+        setAttribute("aria-label", "Close")
+    }
+    val modalBody = WebDomElement("div").apply {
+        classList.add("modal-body")
+        style["overflow-y"] = "auto"
+        style["overflow-x"] = "hidden"
+        style["flex"] = "1 1 auto"
+        style["min-height"] = "0"
+    }
+
     private var onResizeListener: ((WindowConfiguration) -> Unit)? = null
+    private var lastNotifiedWidthPx: Int = -1
+    private var lastNotifiedHeightPx: Int = -1
     private var onFocusListener: ((Boolean) -> Unit)? = null
     private var onCloseRequestedListener: (() -> Boolean)? = null
 
@@ -101,34 +147,109 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         nativeWidget.style["height"] = "100%"
         nativeWidget.style["position"] = "relative"
         nativeWidget.appendChild(contentSlot)
+        modalCloseButton.addEventListener("click") {
+            closeWindow()
+        }
         nativeWidget.addEventListener("pointerdown") {
             bringToFront()
         }
         WebBrowserDomBridge.registerWindowResize { w, h ->
-            windowSize = Size(w, h)
-            nativeWidget.clientWidth = w
-            nativeWidget.clientHeight = h
-            onResizeListener?.invoke(WindowConfiguration(widthPx = w, heightPx = h))
+            if (!isNonMainModalWindow) {
+                windowSize = Size(w, h)
+                nativeWidget.clientWidth = w
+                nativeWidget.clientHeight = h
+                if (w != lastNotifiedWidthPx || h != lastNotifiedHeightPx) {
+                    lastNotifiedWidthPx = w
+                    lastNotifiedHeightPx = h
+                    onResizeListener?.invoke(WindowConfiguration(widthPx = w, heightPx = h))
+                }
+            }
+        }
+        WebBrowserDomBridge.registerWindowKeyEvents(
+            onKeyDown = { ke ->
+                activeWindow?.nativeWidget?.dispatchFromBrowser("keydown", ke)
+            },
+            onKeyUp = { ke ->
+                activeWindow?.nativeWidget?.dispatchFromBrowser("keyup", ke)
+            }
+        )
+    }
+
+    private fun ensureNonMainBootstrapModalStructure() {
+        if (!isNonMainModalWindow) {
+            isNonMainModalWindow = true
+            nativeWidget.classList.addAll(listOf("modal", "fade", "show"))
+            nativeWidget.setAttribute("tabindex", "-1")
+            nativeWidget.setAttribute("role", "dialog")
+            nativeWidget.setAttribute("aria-modal", alwaysOnTopOfOwnerFlag.toString())
+
+            contentSlot.remove()
+            modalTitleElement.textContent = titleText
+            if (modalTitleElement.parent == null) modalHeader.appendChild(modalTitleElement)
+            if (modalCloseButton.parent == null) modalHeader.appendChild(modalCloseButton)
+            if (modalHeader.parent == null) modalContent.appendChild(modalHeader)
+            if (contentSlot.parent == null) modalBody.appendChild(contentSlot)
+            if (modalBody.parent == null) modalContent.appendChild(modalBody)
+            if (modalDialog.parent == null) modalWidgetAttach()
+        }
+        val w = windowSize.width.coerceAtLeast(320)
+        val h = windowSize.height.coerceAtLeast(220)
+        modalDialog.style["max-width"] = "min(${w}px, calc(100vw - 1rem))"
+        modalContent.style["max-height"] = "min(${h}px, calc(100dvh - 1rem))"
+
+        nativeWidget.setStyle("position", "fixed", true)
+        nativeWidget.setStyle("inset", "0", true)
+        nativeWidget.setStyle("top", "0", true)
+        nativeWidget.setStyle("left", "0", true)
+        nativeWidget.setStyle("width", "100vw", true)
+        nativeWidget.setStyle("height", "100dvh", true)
+        nativeWidget.setStyle("margin", "0", true)
+        nativeWidget.setStyle("padding", "0.5rem", true)
+        nativeWidget.setStyle("box-sizing", "border-box", true)
+        nativeWidget.setStyle("display", "flex", true)
+        nativeWidget.setStyle("align-items", "center", true)
+        nativeWidget.setStyle("justify-content", "center", true)
+        if (alwaysOnTopOfOwnerFlag) {
+            nativeWidget.setStyle("background-color", "rgba(0, 0, 0, 0.55)", true)
+            nativeWidget.setStyle("pointer-events", "auto", true)
+        } else {
+            nativeWidget.setStyle("background-color", "rgba(0, 0, 0, 0.35)", true)
+            nativeWidget.setStyle("pointer-events", "auto", true)
         }
     }
 
+    private fun modalWidgetAttach() {
+        nativeWidget.appendChild(modalDialog)
+    }
+
     internal fun notifyPostLayoutResize() {
+        if (isNonMainModalWindow) return
         val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
         val vh = WebBrowserDomBridge.getViewportHeight(windowSize.height)
         windowSize = Size(vw, vh)
         nativeWidget.clientWidth = vw
         nativeWidget.clientHeight = vh
-        onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+        if (vw != lastNotifiedWidthPx || vh != lastNotifiedHeightPx) {
+            lastNotifiedWidthPx = vw
+            lastNotifiedHeightPx = vh
+            onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+        }
     }
 
     companion object {
         internal var activeWindow: WebWindowImpl? = null
         private var layoutRefreshPending: Boolean = false
         private var nextWindowZIndex: Int = 1000
+        private var nextModalZIndex: Int = 2200
 
         internal fun allocateNextZIndex(): Int {
             nextWindowZIndex += 1
             return nextWindowZIndex
+        }
+
+        internal fun allocateNextModalZIndex(): Int {
+            nextModalZIndex += 2
+            return nextModalZIndex
         }
 
         internal fun scheduleLayoutRefresh() {
@@ -159,19 +280,39 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
     override fun setTitle(title: String) {
         titleText = title
         nativeWidget.setAttribute("data-window-title", title)
-        WebBrowserDomBridge.setDocumentTitle(title)
-        if (titleBarInstructions != null) {
-            rebuildWebWindowChrome()
+        modalTitleElement.textContent = title
+        if (!isNonMainModalWindow) {
+            WebBrowserDomBridge.setDocumentTitle(title)
+            if (titleBarInstructions != null) {
+                rebuildWebWindowChrome()
+            }
         }
     }
 
     override fun getTitle(): String = titleText
 
     override fun setWindowSize(size: Size) {
-        windowSize = size
-        nativeWidget.clientWidth = size.width
-        nativeWidget.clientHeight = size.height
-        onResizeListener?.invoke(WindowConfiguration(widthPx = size.width, heightPx = size.height))
+        val isModalWin = isNonMainModalWindow || nativeWidget.getAttribute("data-tool-modal") == "true"
+        val resolvedSize = if (WebBrowserDomBridge.isBrowserEnvironment && !isModalWin) {
+            Size(
+                WebBrowserDomBridge.getViewportWidth(size.width),
+                WebBrowserDomBridge.getViewportHeight(size.height)
+            )
+        } else {
+            size
+        }
+        windowSize = resolvedSize
+        nativeWidget.clientWidth = resolvedSize.width
+        nativeWidget.clientHeight = resolvedSize.height
+        if (isModalWin) {
+            ensureNonMainBootstrapModalStructure()
+        }
+        val listener = onResizeListener
+        if (listener != null) {
+            lastNotifiedWidthPx = resolvedSize.width
+            lastNotifiedHeightPx = resolvedSize.height
+            listener.invoke(WindowConfiguration(widthPx = resolvedSize.width, heightPx = resolvedSize.height))
+        }
     }
 
     override fun getWindowSize(): Size = windowSize
@@ -188,11 +329,29 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
             nativeWidget.classList.add("fullscreen")
         } else {
             nativeWidget.classList.remove("fullscreen")
+            (fullscreenElementImpl?.nativeWidget as? WebDomElement)?.classList?.remove("genericui-fullscreen-element")
+            fullscreenElementImpl = null
         }
         rebuildWebWindowChrome()
     }
 
     override fun isFullscreen(): Boolean = fullscreenFlag
+
+    override fun setFullscreenElement(elementImpl: NativeImpl<*>?, cutoutMode: DisplayCutoutMode) {
+        (fullscreenElementImpl?.nativeWidget as? WebDomElement)?.classList?.remove("genericui-fullscreen-element")
+        fullscreenElementImpl = elementImpl
+        val dom = elementImpl?.nativeWidget as? WebDomElement
+        if (dom != null) {
+            dom.classList.add("genericui-fullscreen-element")
+            WebBrowserDomBridge.requestElementFullscreen(dom)
+            setFullscreen(true, cutoutMode)
+        } else {
+            WebBrowserDomBridge.exitFullscreen()
+            setFullscreen(false, cutoutMode)
+        }
+    }
+
+    override fun getFullscreenElement(): NativeImpl<*>? = fullscreenElementImpl
 
     override fun applyTitleBarInstructions(titleBar: TitleBar?) {
         if (this.titleBarInstructions != titleBar) {
@@ -239,6 +398,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
     }
 
     fun rebuildWebWindowChrome() {
+        if (isNonMainModalWindow) return
         val tb = titleBarInstructions
         val mb = menuBarImpl
         val activeApp = WebApplicationImpl.activeApplication
@@ -256,7 +416,6 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         }
 
         if (tb == null && mb != null) {
-            // MenuBar only -> render only the menubar (no titlebar navbar)
             synthesizedTitleNavbar = null
             menuSlot.clearChildren()
             if (explicitNavBarImpl == null) {
@@ -276,7 +435,6 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
             return
         }
 
-        // TitleBar only (tb != null && mb == null) OR TitleBar + MenuBar (tb != null && mb != null)
         val nonNullTb = tb!!
         nonNullTb.setHostEmbedsComponents(true)
         val navbar = synthesizedTitleNavbar ?: WebNavbarImpl().also { synthesizedTitleNavbar = it }
@@ -391,21 +549,33 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
     override fun isInPictureInPicture(): Boolean = pipActive
 
     override fun showWindow() {
+        val isSecondary = nativeWidget.getAttribute("data-tool-modal") == "true" ||
+            (activeWindow != null && activeWindow !== this && activeWindow?.nativeWidget?.parent != null)
+        if (isSecondary) {
+            ensureNonMainBootstrapModalStructure()
+        }
         setVisible(true)
+        if (isNonMainModalWindow) {
+            nativeWidget.setStyle("display", "flex", true)
+        }
         val appRoot = WebApplicationImpl.activeApplication?.nativeApplication
         if (appRoot != null && nativeWidget.parent == null) {
             appRoot.appendChild(nativeWidget)
         }
-        if (titleBarInstructions != null || menuBarImpl != null) {
+        if (!isNonMainModalWindow && (titleBarInstructions != null || menuBarImpl != null)) {
             rebuildWebWindowChrome()
         }
         val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
         val vh = WebBrowserDomBridge.getViewportHeight(windowSize.height)
-        if (nativeWidget.getAttribute("data-tool-modal") != "true") {
+        if (!isNonMainModalWindow) {
             windowSize = Size(vw, vh)
             nativeWidget.clientWidth = vw
             nativeWidget.clientHeight = vh
+            lastNotifiedWidthPx = vw
+            lastNotifiedHeightPx = vh
             onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+        } else if (alwaysOnTopOfOwnerFlag) {
+            WebBrowserDomBridge.installModalFocusTrap(nativeWidget)
         }
         bringToFront()
         onFocusListener?.invoke(true)
@@ -415,6 +585,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
     override fun closeWindow() {
         val allow = onCloseRequestedListener?.invoke() ?: true
         if (allow) {
+            WebBrowserDomBridge.releaseModalFocusTrap(nativeWidget)
             setVisible(false)
         }
     }
@@ -433,6 +604,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         nativeWidget.setAttribute("data-taskbar-entry", showInTaskbar.toString())
         nativeWidget.setAttribute("data-minimizable", minimizable.toString())
         nativeWidget.setAttribute("data-always-on-top-of-owner", alwaysOnTopOfOwner.toString())
+        ensureNonMainBootstrapModalStructure()
         if (webOwner != null) {
             webOwner.attachedToolWindows.add(this)
             val ownerId = webOwner.nativeWidget.id.ifEmpty { "main-window" }
@@ -459,6 +631,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
     }
 
     override fun dispose() {
+        WebBrowserDomBridge.releaseModalFocusTrap(nativeWidget)
         ownerWindowRef?.attachedToolWindows?.remove(this)
         ownerWindowRef = null
         attachedToolWindows.clear()
@@ -470,7 +643,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         onResizeListener = listener
     }
 
-    override fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?) {
+    override fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)? ) {
         onFocusListener = listener
     }
 

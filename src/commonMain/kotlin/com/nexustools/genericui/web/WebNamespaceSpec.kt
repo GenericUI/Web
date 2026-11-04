@@ -18,19 +18,22 @@ object WebNamespaceSpec {
     const val NAMESPACE_PREFIX: String = "genericui"
     const val NAMESPACE_URI: String = "https://nexustools.com/ns/genericui"
     const val NAMESPACE_SPEC_URI: String = "https://nexustools.com/ns/genericui/spec"
+    const val APP_TAG: String = "genericui:app"
     const val DEFAULT_NAMESPACE_XML_FILENAME: String = "genericui-namespace.xml"
-    const val DEFAULT_GENERICUI_CSS_FILENAME: String = "genericui.css"
+    const val DEFAULT_GENERICUI_CSS_FILENAME: String = "gui/genericui.css"
+    const val DEFAULT_BOOTSTRAP_CSS_URL: String = "gui/bootstrap.min.css"
+    const val DEFAULT_BOOTSTRAP_JS_URL: String = "gui/bootstrap.bundle.min.js"
+    const val DEFAULT_BOOTSTRAP_ICONS_CSS_URL: String = "gui/bootstrap-icons.min.css"
 
     /**
      * Complete set of custom `genericui:<componentname>` element tag names generated on `:web`
      * and emulated by `CssStyleSheet` on non-Web backends.
      */
     val CUSTOM_COMPONENT_TAGS: Set<String> = linkedSetOf(
-        "genericui:root",
+        "genericui:app",
         "genericui:component",
         "genericui:fragment",
         "genericui:fragment-container",
-        "genericui:scrollfragment",
         // Shell & Window Chrome
         "genericui:window",
         "genericui:menubar",
@@ -58,14 +61,18 @@ object WebNamespaceSpec {
         "genericui:colorswatchbox",
         // Layout Containers
         "genericui:container",
+        "genericui:styled-container",
         "genericui:box",
         "genericui:row",
         "genericui:col",
         "genericui:flexbox",
         "genericui:hstack",
         "genericui:vstack",
+        "genericui:spacer",
         "genericui:scrollview",
         "genericui:stepscrollview",
+        "genericui:aspectratiocontainer",
+        "genericui:layered-container",
         // Lazy Virtualized Collections
         "genericui:lazylist",
         "genericui:lazycolumn",
@@ -111,6 +118,7 @@ object WebNamespaceSpec {
         // Rich Typography & Content
         "genericui:markdownview",
         "genericui:avatar",
+        "genericui:text-bubble",
         "genericui:masterdetailstepselect",
         "genericui:horizontalcarouselselector",
         // Feedback & Progress Indicators
@@ -184,10 +192,10 @@ object WebNamespaceSpec {
      * apply the proper block, flex, inline-flex, inline-block, or grid display behavior to
      * custom `genericui:<componentname>` elements before component classes/styles override them.
      */
-    const val DEFAULT_NAMESPACE_CSS: String = """genericui\:root, genericui\:component, genericui\:fragment, genericui\:fragment-container, genericui\:scrollfragment, genericui\:container, genericui\:box, genericui\:col, genericui\:scrollview, genericui\:stepscrollview, genericui\:lazylist, genericui\:lazycolumn, genericui\:lazygrid, genericui\:lazygridtree, genericui\:treeview, genericui\:collapsiblepanel, genericui\:accordion, genericui\:accordionitem, genericui\:jumbotron, genericui\:well, genericui\:listgroupitem, genericui\:tabcontainer, genericui\:formgroup, genericui\:radiogroup, genericui\:markdownview, genericui\:alert, genericui\:toast, genericui\:skeletonplaceholder, genericui\:modal, genericui\:popover, genericui\:backdrop, genericui\:dialogwindow, genericui\:dockpanel, genericui\:panelwindow, genericui\:categorizedtreeview, genericui\:menuitem, genericui\:checkmenuitem, genericui\:radiomenuitem, genericui\:menuseparator, genericui\:contextmenu, genericui\:mdidesktop { display: block; box-sizing: border-box; }
+    const val DEFAULT_NAMESPACE_CSS: String = """genericui\:app, genericui\:component, genericui\:fragment, genericui\:fragment-container, genericui\:container, genericui\:styled-container, genericui\:box, genericui\:col, genericui\:scrollview, genericui\:stepscrollview, genericui\:aspectratiocontainer, genericui\:layered-container, genericui\:lazylist, genericui\:lazycolumn, genericui\:lazygrid, genericui\:lazygridtree, genericui\:treeview, genericui\:collapsiblepanel, genericui\:accordion, genericui\:accordionitem, genericui\:jumbotron, genericui\:well, genericui\:listgroupitem, genericui\:tabcontainer, genericui\:formgroup, genericui\:radiogroup, genericui\:markdownview, genericui\:alert, genericui\:toast, genericui\:skeletonplaceholder, genericui\:modal, genericui\:popover, genericui\:backdrop, genericui\:dialogwindow, genericui\:dockpanel, genericui\:panelwindow, genericui\:categorizedtreeview, genericui\:menuitem, genericui\:checkmenuitem, genericui\:radiomenuitem, genericui\:menuseparator, genericui\:contextmenu, genericui\:mdidesktop { display: block; box-sizing: border-box; }
 genericui\:window, genericui\:menubar, genericui\:splitpane, genericui\:titlebar, genericui\:statusbar, genericui\:mdicontainer, genericui\:mdiwindow, genericui\:dockworkspace, genericui\:dockarea, genericui\:dockgroup, genericui\:row, genericui\:flexbox, genericui\:hstack, genericui\:vstack, genericui\:lazyrow, genericui\:card, genericui\:listgroup, genericui\:navbar, genericui\:nav, genericui\:sidenav, genericui\:bottomnavigationbar, genericui\:breadcrumb, genericui\:pagination, genericui\:stepper, genericui\:toolbar, genericui\:inputgroup, genericui\:compoundunitinput, genericui\:filedropzone, genericui\:masterdetailstepselect, genericui\:horizontalcarouselselector, genericui\:banner, genericui\:toastcontainer, genericui\:progressbar, genericui\:drawer, genericui\:bottomsheet { display: flex; box-sizing: border-box; }
-genericui\:toolpaletteitem, genericui\:colorswatchbox, genericui\:breadcrumbitem, genericui\:buttongroup, genericui\:avatar { display: inline-flex; box-sizing: border-box; }
-genericui\:menu, genericui\:tab, genericui\:closeabletab, genericui\:pinnedtab, genericui\:badgetab, genericui\:editabletab, genericui\:dropdown, genericui\:spinner, genericui\:tooltip { display: inline-block; box-sizing: border-box; }
+genericui\:toolpaletteitem, genericui\:colorswatchbox, genericui\:breadcrumbitem, genericui\:buttongroup, genericui\:avatar, genericui\:text-bubble { display: inline-flex; box-sizing: border-box; }
+genericui\:menu, genericui\:spacer, genericui\:tab, genericui\:closeabletab, genericui\:pinnedtab, genericui\:badgetab, genericui\:editabletab, genericui\:dropdown, genericui\:spinner, genericui\:tooltip { display: inline-block; box-sizing: border-box; }
 genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
 
     /**
@@ -203,7 +211,7 @@ body {
     overflow: hidden;
 }
 
-genericui\:root {
+genericui\:app {
     display: block;
     position: absolute;
     top: 0;
@@ -246,15 +254,15 @@ genericui\:fragment-container {
 /* Scrolling in a GenericUI web app requires an explicit ScrollView for cross-target uniformity */
 genericui\:scrollview,
 genericui\:stepscrollview,
-genericui\:scrollfragment,
-genericui\:root.scroll-fragment {
+genericui\:fragment.scroll-fragment,
+genericui\:app.scroll-fragment {
     display: block;
     overflow: auto;
     box-sizing: border-box;
 }
 
-/* Top-level MenuBar & Bootstrap Dropdown Menus inside genericui:root */
-genericui\:root > genericui\:menubar,
+/* Top-level MenuBar & Bootstrap Dropdown Menus inside genericui:app */
+genericui\:app > genericui\:menubar,
 genericui\:menubar {
     display: flex;
     flex-direction: row;
@@ -389,8 +397,11 @@ genericui\:contextmenu.dropdown-menu {
 /* Block GenericUI Custom Elements */
 genericui\:component,
 genericui\:container,
+genericui\:styled-container,
 genericui\:box,
 genericui\:col,
+genericui\:aspectratiocontainer,
+genericui\:layered-container,
 genericui\:lazylist,
 genericui\:lazycolumn,
 genericui\:lazygrid,
@@ -466,7 +477,8 @@ genericui\:toolpaletteitem,
 genericui\:colorswatchbox,
 genericui\:breadcrumbitem,
 genericui\:buttongroup,
-genericui\:avatar {
+genericui\:avatar,
+genericui\:text-bubble {
     display: inline-flex;
     box-sizing: border-box;
 }
@@ -488,6 +500,146 @@ genericui\:tooltip {
 genericui\:toolpalette {
     display: grid;
     box-sizing: border-box;
+}
+
+/* Lazy Virtualized Scroll Containers & Viewports */
+genericui\:lazylist,
+genericui\:lazycolumn,
+genericui\:lazygrid,
+genericui\:lazygridtree,
+genericui\:treeview {
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    max-height: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.lazy-list-viewport,
+.lazy-grid-viewport,
+.tree-view-viewport {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
+/* LayeredContainer & TextBubble */
+.gui-layered-container,
+genericui\:layered-container {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.ratio > .gui-layered-container,
+.ratio > genericui\:layered-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.gui-layer-item.gui-layer-fill {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.gui-layer-item.gui-layer-float {
+    position: absolute;
+    box-sizing: border-box;
+}
+
+.gui-layer-item.gui-layer-float > * {
+    pointer-events: auto;
+}
+
+.gui-text-bubble,
+genericui\:text-bubble {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 9999px;
+    background-color: rgba(15, 23, 42, 0.78);
+    color: #f8fafc;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.2;
+    backdrop-filter: blur(4px);
+    box-sizing: border-box;
+}
+
+/* Splash Screen (#genericui-splash) */
+#genericui-splash,
+.genericui-splash {
+    z-index: 2000;
+    transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+#genericui-splash.genericui-splash-hidden,
+.genericui-splash.genericui-splash-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.genericui-splash-content {
+    max-width: 420px;
+}
+
+.genericui-splash-icon {
+    object-fit: contain;
+}
+
+#genericui-splash-status,
+.genericui-splash-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.genericui-splash-status-icon {
+    flex: 0 0 auto;
+}
+
+.genericui-splash-status-icon.bi {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+#genericui-splash-progress,
+.genericui-splash-progress {
+    height: 8px;
+}
+
+#genericui-splash-progress-bar {
+    width: 0%;
+}
+
+#genericui-splash-error-stack,
+.genericui-splash-error-stack {
+    max-height: 240px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Splash Error Alert & Stacktrace <pre> Text Selection */
+#genericui-splash-error,
+#genericui-splash-error *,
+.genericui-splash-error,
+.genericui-splash-error * {
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    user-select: text !important;
+    cursor: text;
 }"""
 
     /**
@@ -512,14 +664,13 @@ genericui\:toolpalette {
     </commonAttributes>
     <elements>
         <!-- Core Base Component -->
-        <element name="root" tag="genericui:root" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
+        <element name="app" tag="genericui:app" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
         <element name="component" tag="genericui:component" componentClass="AbstractComponent" category="core" display="block" role="generic" description="Base GenericUI component element."/>
         <element name="fragment" tag="genericui:fragment" componentClass="Fragment" category="core" display="block" role="region" description="Modular lifecycle-aware UI fragment container."/>
         <element name="fragment-container" tag="genericui:fragment-container" componentClass="FragmentContainer" category="core" display="block" role="region" description="Host container mounting and transitioning Fragment instances."/>
-        <element name="scrollfragment" tag="genericui:scrollfragment" componentClass="ScrollFragment" category="shell" display="block" role="region" description="Scrollable activity-like lifecycle fragment container."/>
 
         <!-- Shell & Window Chrome -->
-        <element name="window" tag="genericui:window" componentClass="Window" category="shell" display="flex" role="region" description="Top-level GenericUI window container inside genericui:root."/>
+        <element name="window" tag="genericui:window" componentClass="Window" category="shell" display="flex" role="region" description="Top-level GenericUI window container inside genericui:app."/>
         <element name="menubar" tag="genericui:menubar" componentClass="MenuBar" category="shell" display="flex" role="menubar" description="Top-level horizontal application menu bar."/>
         <element name="menu" tag="genericui:menu" componentClass="Menu" category="shell" display="inline-block" role="menu" description="Pull-down or cascading submenu container.">
             <attribute name="data-menu-label" type="string" description="Menu header label."/>
@@ -566,14 +717,18 @@ genericui\:toolpalette {
 
         <!-- Layout Containers -->
         <element name="container" tag="genericui:container" componentClass="Container" category="layout" display="block" role="region" description="Responsive layout container."/>
+        <element name="styled-container" tag="genericui:styled-container" componentClass="StyledContainer" category="layout" display="block" role="group" description="Custom-styled surface and layout container."/>
         <element name="box" tag="genericui:box" componentClass="Box" category="layout" display="block" role="group" description="Single-purpose positioning and alignment box container."/>
         <element name="row" tag="genericui:row" componentClass="Row" category="layout" display="flex" role="group" description="12-column responsive Bootstrap grid row."/>
         <element name="col" tag="genericui:col" componentClass="Col" category="layout" display="block" role="group" description="Responsive grid column within a genericui:row."/>
         <element name="flexbox" tag="genericui:flexbox" componentClass="FlexBox" category="layout" display="flex" role="group" description="Configurable CSS Flexbox layout container."/>
         <element name="hstack" tag="genericui:hstack" componentClass="HStack" category="layout" display="flex" role="group" description="Horizontal flex stack layout container."/>
         <element name="vstack" tag="genericui:vstack" componentClass="VStack" category="layout" display="flex" role="group" description="Vertical flex stack layout container."/>
+        <element name="spacer" tag="genericui:spacer" componentClass="Spacer" category="layout" display="inline-block" role="presentation" description="Flexible or fixed-size layout spacing element."/>
         <element name="scrollview" tag="genericui:scrollview" componentClass="ScrollView" category="layout" display="block" role="region" description="Scrollable viewport container."/>
         <element name="stepscrollview" tag="genericui:stepscrollview" componentClass="StepScrollView" category="layout" display="block" role="region" description="Discrete step-by-step scrollable container."/>
+        <element name="aspectratiocontainer" tag="genericui:aspectratiocontainer" componentClass="AspectRatioContainer" category="layout" display="block" role="group" description="Bootstrap aspect-ratio layout container (.ratio)."/>
+        <element name="layered-container" tag="genericui:layered-container" componentClass="LayeredContainer" category="layout" display="block" role="group" description="Multi-layer Z-ordered stacking container supporting full-bleed and floating corner/edge overlays."/>
 
         <!-- Lazy Virtualized Collections -->
         <element name="lazylist" tag="genericui:lazylist" componentClass="LazyList" category="lazy" display="block" role="list" description="Virtualized scrolling list mounting only visible item DOM nodes."/>
@@ -637,6 +792,7 @@ genericui\:toolpalette {
         <!-- Rich Typography & Content -->
         <element name="markdownview" tag="genericui:markdownview" componentClass="MarkdownView" category="typography" display="block" role="document" description="Formatted Markdown document viewer."/>
         <element name="avatar" tag="genericui:avatar" componentClass="Avatar" category="content" display="inline-flex" role="img" description="Circular or rounded user/entity avatar with image or initials fallback."/>
+        <element name="text-bubble" tag="genericui:text-bubble" componentClass="TextBubble" category="content" display="inline-flex" role="status" description="Pill/bubble overlay control displaying an optional icon and text label."/>
         <element name="masterdetailstepselect" tag="genericui:masterdetailstepselect" componentClass="MasterDetailStepSelect" category="content" display="flex" role="region" description="Two-pane master category and detail item selector."/>
         <element name="horizontalcarouselselector" tag="genericui:horizontalcarouselselector" componentClass="HorizontalCarouselSelector" category="content" display="flex" role="region" description="Horizontal card carousel with previous/next selection controls."/>
 
@@ -695,7 +851,11 @@ genericui\:toolpalette {
     fun inferTagForClassPrefix(classPrefix: String, explicitTagName: String? = null): String {
         val cleanExplicit = explicitTagName?.trim()?.lowercase().orEmpty()
         if (cleanExplicit.isNotEmpty() && cleanExplicit != "genericui:container") {
-            return cleanExplicit
+            return when (cleanExplicit) {
+                "root", "genericui:root" -> "genericui:app"
+                "scrollfragment", "genericui:scrollfragment" -> "genericui:fragment"
+                else -> cleanExplicit
+            }
         }
 
         val cleanPrefix = classPrefix.trim().lowercase()
@@ -703,16 +863,16 @@ genericui\:toolpalette {
             return if (cleanExplicit.isNotEmpty()) cleanExplicit else "genericui:container"
         }
 
+        mapSingleClassToken(cleanPrefix)?.let { return it }
+
         if (cleanPrefix.startsWith("genericui:")) {
             return cleanPrefix
         }
 
-        mapSingleClassToken(cleanPrefix)?.let { return it }
-
         val tokens = cleanPrefix.split(Regex("\\s+")).filter { it.isNotEmpty() }
         // Check multi-token specificity first (e.g., "offcanvas offcanvas-bottom", "d-flex flex-column")
-        if ("root" in tokens || "genericui:root" in tokens || "genericui-root" in tokens) return "genericui:root"
-        if ("scrollfragment" in tokens || "scroll-fragment" in tokens || "genericui-scrollfragment" in tokens) return "genericui:scrollfragment"
+        if ("app" in tokens || "genericui:app" in tokens || "genericui-app" in tokens || "root" in tokens || "genericui:root" in tokens || "genericui-root" in tokens) return "genericui:app"
+        if ("scrollfragment" in tokens || "scroll-fragment" in tokens || "genericui-scrollfragment" in tokens || "genericui-scroll-fragment" in tokens) return "genericui:fragment"
         if ("fragment-container" in tokens || "genericui-fragment-container" in tokens) return "genericui:fragment-container"
         if ("fragment" in tokens || "genericui-fragment" in tokens) return "genericui:fragment"
         if ("window" in tokens || "genericui-window" in tokens) return "genericui:window"
@@ -733,6 +893,8 @@ genericui\:toolpalette {
         if ("accordion" in tokens) return "genericui:accordion"
         if ("modal-backdrop" in tokens) return "genericui:backdrop"
         if ("modal" in tokens) return "genericui:modal"
+        if ("gui-layered-container" in tokens || "layered-container" in tokens) return "genericui:layered-container"
+        if ("gui-text-bubble" in tokens || "text-bubble" in tokens) return "genericui:text-bubble"
 
         for (token in tokens) {
             mapSingleClassToken(token)?.let { return it }
@@ -746,19 +908,23 @@ genericui\:toolpalette {
             return "genericui:col"
         }
         return when (token) {
-            "root", "genericui:root", "genericui-root" -> "genericui:root"
+            "app", "genericui:app", "genericui-app", "root", "genericui:root", "genericui-root" -> "genericui:app"
             "window", "genericui-window" -> "genericui:window"
-            "fragment", "genericui-fragment" -> "genericui:fragment"
-            "fragment-container", "fragmentcontainer", "genericui-fragment-container" -> "genericui:fragment-container"
-            "scrollfragment", "scroll-fragment", "genericui-scrollfragment", "genericui-scroll-fragment" -> "genericui:scrollfragment"
+            "fragment", "genericui:fragment", "genericui-fragment" -> "genericui:fragment"
+            "fragment-container", "fragmentcontainer", "genericui:fragment-container", "genericui-fragment-container" -> "genericui:fragment-container"
+            "scrollfragment", "scroll-fragment", "genericui:scrollfragment", "genericui-scrollfragment", "genericui-scroll-fragment" -> "genericui:fragment"
             "container", "container-fluid", "container-sm", "container-md", "container-lg", "container-xl", "container-xxl" -> "genericui:container"
+            "styled-container", "styledcontainer", "genericui:styled-container" -> "genericui:styled-container"
             "box" -> "genericui:box"
             "row" -> "genericui:row"
             "d-flex", "d-inline-flex", "flexbox" -> "genericui:flexbox"
             "hstack" -> "genericui:hstack"
             "vstack" -> "genericui:vstack"
+            "spacer" -> "genericui:spacer"
             "scrollview", "scroll-view", "overflow-auto", "overflow-scroll" -> "genericui:scrollview"
             "stepscrollview", "step-scroll-view" -> "genericui:stepscrollview"
+            "ratio", "aspectratiocontainer", "aspect-ratio-container" -> "genericui:aspectratiocontainer"
+            "layered-container", "layeredcontainer", "gui-layered-container", "genericui:layered-container" -> "genericui:layered-container"
             "lazylist", "lazy-list" -> "genericui:lazylist"
             "lazycolumn", "lazy-column" -> "genericui:lazycolumn"
             "lazyrow", "lazy-row" -> "genericui:lazyrow"
@@ -797,6 +963,7 @@ genericui\:toolpalette {
             "filedropzone", "file-drop-zone" -> "genericui:filedropzone"
             "markdownview", "markdown-view", "markdown-body" -> "genericui:markdownview"
             "avatar" -> "genericui:avatar"
+            "text-bubble", "textbubble", "gui-text-bubble", "genericui:text-bubble" -> "genericui:text-bubble"
             "masterdetailstepselect", "master-detail-step-select" -> "genericui:masterdetailstepselect"
             "horizontalcarouselselector", "horizontal-carousel-selector" -> "genericui:horizontalcarouselselector"
             "alert" -> "genericui:alert"

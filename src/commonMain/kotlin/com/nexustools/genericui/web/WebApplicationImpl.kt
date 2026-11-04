@@ -1,25 +1,25 @@
 package com.nexustools.genericui.web
 
+import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
+import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.theme.SystemThemeDetector
 
 /**
- * Web implementation of [ApplicationNativeImpl] managing the root `<genericui:root>` DOM container,
+ * Web implementation of [ApplicationNativeImpl] managing the root `<genericui:app>` DOM container,
  * document `data-bs-theme` attribute, optional top-level `<genericui:menubar>` / `<genericui:navbar>` chrome,
- * external `.css` `<link rel="stylesheet">` injection via [WebStyleSheetManager],
- * and [WebHtmlTemplateEngine] CDN resource injection.
+ * and `<head>` `<link rel="stylesheet">` synchronization via [WebStyleSheetManager].
  */
 class WebApplicationImpl(
     val templateEngine: WebHtmlTemplateEngine = WebHtmlTemplateEngine()
 ) : ApplicationNativeImpl<WebDomElement> {
-    override val nativeApplication: WebDomElement = WebDomElement("genericui:root")
+    override val nativeApplication: WebDomElement = WebDomElement(WebNamespaceSpec.APP_TAG)
 
     internal var topMenuBarElement: WebDomElement? = null
     private var themeMode: ThemeMode = ThemeMode.AUTO
     private var themeColor: String? = templateEngine.themeColor
-    private var cdnInjected: Boolean = false
 
     /**
      * Most recently applied Bootstrap `data-bs-theme` value (`"dark"` or `"light"`).
@@ -30,6 +30,7 @@ class WebApplicationImpl(
     init {
         activeApplication = this
         installSystemThemeHooks()
+        SystemThemeDetector.backendDetector = { detectSystemThemeMode() }
         applyThemeNative(themeMode)
         if (!themeColor.isNullOrBlank()) {
             nativeApplication.setStyle("--genericui-theme-color", themeColor)
@@ -37,8 +38,15 @@ class WebApplicationImpl(
         }
         if (WebBrowserDomBridge.isBrowserEnvironment) {
             WebBrowserDomBridge.bindApplicationRoot(nativeApplication)
-        } else {
-            ensureBootstrapCdnInjected()
+        }
+        mountDefaultHeadStyleSheets()
+    }
+
+    private fun mountDefaultHeadStyleSheets() {
+        Resources.getStyleSheet(Resources.GENERICUI)?.let { WebStyleSheetManager.addStyleSheet(it, nativeApplication) }
+        Resources.getStyleSheet(Resources.BOOTSTRAP)?.let { WebStyleSheetManager.addStyleSheet(it, nativeApplication) }
+        if (templateEngine.cdnConfig.includeBootstrapIcons) {
+            Resources.getStyleSheet(Resources.BOOTSTRAP_ICONS)?.let { WebStyleSheetManager.addStyleSheet(it, nativeApplication) }
         }
     }
 
@@ -68,14 +76,11 @@ class WebApplicationImpl(
     }
 
     /**
-     * Ensures the Bootstrap 5 CSS and JS bundle CDN elements from [templateEngine]
-     * are mounted in the application root.
+     * Ensures the built-in stylesheets are registered in `<head>` via [WebStyleSheetManager].
+     * Never injects `<link>`, `<style>`, or `<script>` elements into `<genericui:app>`.
      */
     fun ensureBootstrapCdnInjected() {
-        if (!cdnInjected) {
-            templateEngine.injectCdnResourcesInto(nativeApplication)
-            cdnInjected = true
-        }
+        mountDefaultHeadStyleSheets()
     }
 
     /**
@@ -115,10 +120,15 @@ class WebApplicationImpl(
     override fun getThemeMode(): ThemeMode = themeMode
 
     override fun detectSystemThemeMode(): ThemeMode {
-        if (WebBrowserDomBridge.isBrowserEnvironment) {
-            return if (WebBrowserDomBridge.isBrowserDarkMode()) ThemeMode.DARK else ThemeMode.LIGHT
+        SystemThemeDetector.overrideDetectedTheme?.let {
+            if (!it.isAuto) return it
         }
-        return SystemThemeDetector.detectSystemTheme()
+        if (WebBrowserDomBridge.isBrowserEnvironment) {
+            installSystemThemeHooks()
+            val isDark = WebBrowserDomBridge.isBrowserDarkMode(null)
+            return if (isDark) ThemeMode.DARK else ThemeMode.LIGHT
+        }
+        return if (SystemThemeDetector.fallbackSystemTheme == ThemeMode.LIGHT) ThemeMode.LIGHT else ThemeMode.DARK
     }
 
     override fun setThemeColor(colorHex: String?) {
@@ -147,15 +157,13 @@ class WebApplicationImpl(
         activeApplication = this
         if (WebBrowserDomBridge.isBrowserEnvironment) {
             WebBrowserDomBridge.bindApplicationRoot(nativeApplication)
-        } else {
-            ensureBootstrapCdnInjected()
         }
+        WebBrowserDomBridge.setWebSplashStatus(WebSplashConfig.STATUS_LOADING_APPLICATION, BootstrapType.NONE)
         onStarted()
     }
 
     override fun exitApplication(exitCode: Int) {
         nativeApplication.clearChildren()
-        cdnInjected = false
     }
 
     override fun dispose() {
@@ -168,23 +176,31 @@ class WebApplicationImpl(
     companion object {
         var activeApplication: WebApplicationImpl? = null
             internal set
+        private var browserThemeListenerInstalled: Boolean = false
 
         internal fun installSystemThemeHooks() {
+            if (WebBrowserDomBridge.isBrowserEnvironment && !browserThemeListenerInstalled) {
+                browserThemeListenerInstalled = true
+                val isDark = WebBrowserDomBridge.isBrowserDarkMode { darkNow ->
+                    val nextTheme = if (darkNow) ThemeMode.DARK else ThemeMode.LIGHT
+                    SystemThemeDetector.fallbackSystemTheme = nextTheme
+                    activeApplication?.let { app ->
+                        if (app.themeMode.isAuto) {
+                            app.applyThemeNative(ThemeMode.AUTO)
+                        }
+                    }
+                    SystemThemeDetector.notifySystemThemeChanged(nextTheme)
+                }
+                SystemThemeDetector.fallbackSystemTheme = if (isDark) ThemeMode.DARK else ThemeMode.LIGHT
+            }
             if (SystemThemeDetector.backendDetector == null) {
                 SystemThemeDetector.backendDetector = {
-                    if (WebBrowserDomBridge.isBrowserEnvironment) {
-                        val isDark = WebBrowserDomBridge.isBrowserDarkMode { darkNow ->
-                            SystemThemeDetector.fallbackSystemTheme = if (darkNow) ThemeMode.DARK else ThemeMode.LIGHT
-                            activeApplication?.let { app ->
-                                if (app.themeMode == ThemeMode.AUTO) {
-                                    app.applyThemeNative(ThemeMode.AUTO)
-                                }
-                            }
+                    activeApplication?.detectSystemThemeMode()
+                        ?: if (WebBrowserDomBridge.isBrowserEnvironment) {
+                            if (WebBrowserDomBridge.isBrowserDarkMode()) ThemeMode.DARK else ThemeMode.LIGHT
+                        } else {
+                            SystemThemeDetector.fallbackSystemTheme
                         }
-                        if (isDark) ThemeMode.DARK else ThemeMode.LIGHT
-                    } else {
-                        SystemThemeDetector.fallbackSystemTheme
-                    }
                 }
             }
             SystemThemeDetector.onThemeAppliedHook = { configured, resolved ->

@@ -12,7 +12,7 @@ import com.nexustools.genericui.style.bootstrap.ComponentBootstrap
 import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCursorValue
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.CssTransitionSpec
@@ -23,7 +23,7 @@ import com.nexustools.genericui.style.transition.CssTransitionSpec
  * Per the dual-mode styling architecture:
  * - Applies user-added CSS classes strictly to [nativeWidget]'s `classList` (`setClass`, `getClass`, `getClasses`, `addClass`, `removeClass`, `hasClass`).
  * - Applies Bootstrap Enum classes (`ComponentBootstrap`, `setType`, `setSize`, etc.) to [nativeWidget]'s
- *   `enumClassList` (`setEnumClasses`) via [BootstrapClassMapper], keeping them 100% invisible to `getClasses()` / `hasClass()`.
+ *   `enumClasses` (`setEnumClasses`) via [BootstrapClassMapper], keeping them 100% invisible to `getClasses()` / `hasClass()`.
  */
 open class WebBaseNativeImpl(
     tagName: String = "div",
@@ -38,6 +38,9 @@ open class WebBaseNativeImpl(
 
     private var visibleFlag: Boolean = true
     private var enabledFlag: Boolean = true
+    private var hoveredStateFlag: Boolean = false
+    private var focusedStateFlag: Boolean = false
+    private var activePressedStateFlag: Boolean = false
     private var opacityValue: Float = 1.0f
     private var tooltipValue: String? = null
     private var preferredSizeValue: Size? = null
@@ -116,6 +119,22 @@ open class WebBaseNativeImpl(
         val normalizedSnapshot = styleSnapshot.copy(type = styleSnapshot.type?.takeIf { it != BootstrapType.NONE })
         enumClasses.addAll(BootstrapClassMapper.toEnumClassSet(normalizedSnapshot))
         enumClasses.removeAll { it.endsWith("-") }
+        if (!visibleFlag) {
+            enumClasses.removeAll(
+                setOf(
+                    "d-flex",
+                    "d-inline-flex",
+                    "d-block",
+                    "d-inline-block",
+                    "d-grid",
+                    "d-inline",
+                    "d-table",
+                    "d-table-row",
+                    "d-table-cell"
+                )
+            )
+            enumClasses.add("d-none")
+        }
         if (!enabledFlag) {
             enumClasses.add("disabled")
         }
@@ -150,7 +169,6 @@ open class WebBaseNativeImpl(
 
     override fun removeClass(className: String) {
         nativeWidget.removeClass(className)
-        WebWindowImpl.scheduleLayoutRefresh()
     }
 
     override fun hasClass(className: String): Boolean =
@@ -158,9 +176,18 @@ open class WebBaseNativeImpl(
 
     private val appliedComputedStyleKeys = mutableSetOf<String>()
     private val appliedComponentStyleKeys = mutableSetOf<String>()
+    private var savedDisplayWhenVisible: Pair<String, Boolean>? = null
+
+    protected fun hasExplicitStyleProperty(property: String): Boolean {
+        val key = property.trim().lowercase()
+        return key in appliedComponentStyleKeys || key in appliedComputedStyleKeys
+    }
 
     private fun setComputedStyleProp(key: String, value: String, important: Boolean = false) {
         appliedComputedStyleKeys.add(key)
+        if (key == "display" && value != "none") {
+            savedDisplayWhenVisible = value to important
+        }
         nativeWidget.setStyle(key, value, important)
     }
 
@@ -233,12 +260,16 @@ open class WebBaseNativeImpl(
     override fun setVisible(visible: Boolean) {
         visibleFlag = visible
         if (visible) {
-            if ("display" !in appliedComponentStyleKeys && "display" !in appliedComputedStyleKeys) {
+            val savedDisplay = savedDisplayWhenVisible
+            if (savedDisplay != null && ("display" in appliedComponentStyleKeys || "display" in appliedComputedStyleKeys)) {
+                nativeWidget.setStyle("display", savedDisplay.first, savedDisplay.second)
+            } else if ("display" !in appliedComponentStyleKeys && "display" !in appliedComputedStyleKeys) {
                 nativeWidget.setStyle("display", null, false)
             }
         } else {
-            nativeWidget.setStyle("display", "none", false)
+            nativeWidget.setStyle("display", "none", true)
         }
+        syncBootstrapClasses()
     }
 
     override fun isVisible(): Boolean = visibleFlag
@@ -246,10 +277,36 @@ open class WebBaseNativeImpl(
     override fun setEnabled(enabled: Boolean) {
         enabledFlag = enabled
         nativeWidget.disabled = !enabled
+        if (!enabled) {
+            hoveredStateFlag = false
+            focusedStateFlag = false
+            activePressedStateFlag = false
+            nativeWidget.setAttribute("aria-disabled", "true")
+        } else {
+            nativeWidget.removeAttribute("aria-disabled")
+        }
         syncBootstrapClasses()
     }
 
     override fun isEnabled(): Boolean = enabledFlag
+
+    override fun setHoveredState(hovered: Boolean) {
+        hoveredStateFlag = if (!enabledFlag) false else hovered
+    }
+
+    override fun isHoveredState(): Boolean = if (!enabledFlag) false else hoveredStateFlag
+
+    override fun setFocusedState(focused: Boolean) {
+        focusedStateFlag = if (!enabledFlag) false else focused
+    }
+
+    override fun isFocusedState(): Boolean = if (!enabledFlag) false else focusedStateFlag
+
+    override fun setActivePressedState(active: Boolean) {
+        activePressedStateFlag = if (!enabledFlag) false else active
+    }
+
+    override fun isActivePressedState(): Boolean = if (!enabledFlag) false else activePressedStateFlag
 
     override fun setOpacity(opacity: Float) {
         opacityValue = opacity.coerceIn(0f, 1f)
@@ -368,11 +425,17 @@ open class WebBaseNativeImpl(
         for (oldKey in removedKeys) {
             appliedComponentStyleKeys.remove(oldKey)
             appliedComputedStyleKeys.remove(oldKey)
+            if (oldKey == "display") {
+                savedDisplayWhenVisible = null
+            }
             nativeWidget.setStyle(oldKey, null, false)
         }
         for ((prop, pair) in newProps) {
             val (value, isImp) = pair
             appliedComponentStyleKeys.add(prop)
+            if (prop == "display" && value != "none") {
+                savedDisplayWhenVisible = value to isImp
+            }
             nativeWidget.setStyle(prop, value, isImp)
         }
         preferredSizeValue?.let { size ->
@@ -380,77 +443,36 @@ open class WebBaseNativeImpl(
             if (size.height > 0 && "height" !in newProps) nativeWidget.setStyle("height", "${size.height}px", false)
         }
         if (!visibleFlag) {
-            nativeWidget.setStyle("display", "none", false)
+            nativeWidget.setStyle("display", "none", true)
         }
     }
 
+    protected var lastComputedStyle: ComputedStyle = ComputedStyle()
+
     override fun applyComputedStyle(style: ComputedStyle) {
-        val newProps = linkedMapOf<String, String>()
-        fun putProp(key: String, value: String) {
-            newProps[key] = value
-        }
-
-        style.rawDeclarations.forEach { (k, v) -> putProp(k, v) }
-
-        style.backgroundColor?.let { putProp("background-color", it.toCssRgba()) }
-        style.backgroundGradient?.let { putProp("background-image", it.toCssString()) }
-        style.textColor?.let { putProp("color", it.toCssRgba()) }
-        style.borderColor?.let { putProp("border-color", it.toCssRgba()) }
-        style.borderWidthPx?.let { putProp("border-width", "${it}px") }
-        style.borderStyle?.let { putProp("border-style", it) }
-        style.borderRadiusPx?.let { putProp("border-radius", "${it}px") }
-        style.borderRadiusPercent?.let { putProp("border-radius", "${it}%") }
-        style.fontSizePx?.let { putProp("font-size", "${it}px") }
-        style.fontSizePercent?.let { putProp("font-size", "${it}%") }
-        style.fontFamily?.let { putProp("font-family", it) }
-        style.fontWeightNumeric?.let { putProp("font-weight", it.toString()) }
-        style.textAlign?.let { putProp("text-align", it) }
-        style.backgroundImageUrl?.let { putProp("background-image", "url('$it')") }
-        style.backgroundRepeat?.let { putProp("background-repeat", it) }
-        style.backgroundAttachment?.let { putProp("background-attachment", it) }
-        style.backgroundPosition?.let { putProp("background-position", it) }
-        style.backgroundSize?.let { putProp("background-size", it) }
-        style.textShadow?.let { putProp("text-shadow", it) }
-        style.boxShadow?.let { putProp("box-shadow", it) }
-        style.display?.let { putProp("display", it) }
-        style.position?.let { putProp("position", it) }
-        style.overflow?.let { putProp("overflow", it) }
-        style.width?.let { putProp("width", it) }
-        style.height?.let { putProp("height", it) }
-        style.minWidth?.let { putProp("min-width", it) }
-        style.minHeight?.let { putProp("min-height", it) }
-        style.maxWidth?.let { putProp("max-width", it) }
-        style.maxHeight?.let { putProp("max-height", it) }
-        style.top?.let { putProp("top", it) }
-        style.right?.let { putProp("right", it) }
-        style.bottom?.let { putProp("bottom", it) }
-        style.left?.let { putProp("left", it) }
-        style.zIndex?.let { putProp("z-index", it.toString()) }
-        style.transform?.let { putProp("transform", it) }
-        style.transition?.let { putProp("transition", it) }
-        style.cursor?.let { putProp("cursor", it) }
-        if (style.opacity < 1.0f || "opacity" in style.rawDeclarations) {
-            putProp("opacity", style.opacity.toString())
-        }
-        if (!style.pointerEventsEnabled) {
-            putProp("pointer-events", "none")
-        }
-
-        val removedKeys = appliedComputedStyleKeys.filter { it !in newProps && it !in appliedComponentStyleKeys }
-        for (oldKey in removedKeys) {
-            appliedComputedStyleKeys.remove(oldKey)
-            nativeWidget.setStyle(oldKey, null, false)
-        }
-        for ((k, v) in newProps) {
-            setComputedStyleProp(k, v, k in style.importantProperties)
+        lastComputedStyle = style
+        // On :web, all stylesheets (genericui.css, bootstrap.min.css, application .css) are mounted
+        // in <head> by WebStyleSheetManager and evaluated natively by the browser (including @media
+        // queries, :hover/:focus pseudo-classes, and [data-bs-theme]). Do not stamp ComputedStyle
+        // declarations as inline style="..." attributes on DOM elements.
+        if (appliedComputedStyleKeys.isNotEmpty()) {
+            val removedKeys = appliedComputedStyleKeys.filter { it !in appliedComponentStyleKeys }
+            for (oldKey in removedKeys) {
+                appliedComputedStyleKeys.remove(oldKey)
+                if (oldKey == "display") {
+                    savedDisplayWhenVisible = null
+                }
+                nativeWidget.setStyle(oldKey, null, false)
+            }
+            appliedComputedStyleKeys.clear()
         }
 
         preferredSizeValue?.let { size ->
-            if (size.width > 0 && "width" !in newProps) nativeWidget.setStyle("width", "${size.width}px", false)
-            if (size.height > 0 && "height" !in newProps) nativeWidget.setStyle("height", "${size.height}px", false)
+            if (size.width > 0 && "width" !in appliedComponentStyleKeys) nativeWidget.setStyle("width", "${size.width}px", false)
+            if (size.height > 0 && "height" !in appliedComponentStyleKeys) nativeWidget.setStyle("height", "${size.height}px", false)
         }
         if (!visibleFlag) {
-            nativeWidget.setStyle("display", "none", false)
+            nativeWidget.setStyle("display", "none", true)
         }
     }
 

@@ -53,6 +53,8 @@ class WebHtmlTemplateEngine(
         loaderHash: String? = null,
         namespaceXmlUrl: String = WebNamespaceSpec.DEFAULT_NAMESPACE_XML_FILENAME,
         namespaceXmlHash: String? = null,
+        resourcesJsonUrl: String = "resources.json",
+        resourcesJsonHash: String? = null,
         genericUiCssUrl: String = WebNamespaceSpec.DEFAULT_GENERICUI_CSS_FILENAME,
         genericUiCssContent: String = WebNamespaceSpec.DEFAULT_GENERICUI_CSS,
         genericUiCssHash: String? = null,
@@ -62,8 +64,11 @@ class WebHtmlTemplateEngine(
         manifestHash: String? = null,
         customTemplate: String = defaultHtmlTemplate
     ): String {
-        val resolvedTheme = SystemThemeDetector.resolveTheme(themeMode)
-        val bsTheme = if (resolvedTheme == ThemeMode.LIGHT) "light" else "dark"
+        val bsTheme = when (themeMode) {
+            ThemeMode.LIGHT -> "light"
+            ThemeMode.DARK -> "dark"
+            ThemeMode.AUTO -> "auto"
+        }
 
         val effectiveIconUrl = webIconUrl?.trim()?.takeIf { it.isNotEmpty() }
             ?: splash.iconUrl?.trim()?.takeIf { it.isNotEmpty() }
@@ -108,18 +113,20 @@ class WebHtmlTemplateEngine(
             ""
         }
 
+        val crossOriginAttr = if (cdnConfig.crossOrigin.isNotBlank()) """ crossorigin="${cdnConfig.crossOrigin}"""" else ""
+
         val iconsLink = if (cdnConfig.includeBootstrapIcons && cdnConfig.iconsCssCdnUrl.isNotBlank()) {
-            """    <link id="genericui-bootstrap-icons-css" rel="stylesheet" href="${cdnConfig.iconsCssCdnUrl}" crossorigin="${cdnConfig.crossOrigin}">"""
+            """    <link id="genericui-bootstrap-icons-css" rel="stylesheet" href="${cdnConfig.iconsCssCdnUrl}"$crossOriginAttr>"""
         } else {
             ""
         }
 
         val extraStylesheets = cdnConfig.extraCssCdnUrls.joinToString("\n") { url ->
-            """    <link rel="stylesheet" href="$url" crossorigin="${cdnConfig.crossOrigin}">"""
+            """    <link rel="stylesheet" href="$url"$crossOriginAttr>"""
         }
 
         val extraScripts = cdnConfig.extraJsCdnUrls.joinToString("\n") { url ->
-            """    <script src="$url" crossorigin="${cdnConfig.crossOrigin}" defer></script>"""
+            """    <script src="$url"$crossOriginAttr defer></script>"""
         }
 
         val resolvedWasmUrl = wasmJsUrl?.trim()?.takeIf { it.isNotEmpty() } ?: "app-wasm.js"
@@ -149,6 +156,10 @@ class WebHtmlTemplateEngine(
         val resolvedNamespaceXmlHash = namespaceXmlHash?.trim()?.takeIf { it.isNotBlank() }
             ?: WebNamespaceSpec.defaultNamespaceXmlSha1Hash
 
+        val resolvedResourcesJsonUrl = resourcesJsonUrl.trim().ifEmpty { "resources.json" }
+        val resolvedResourcesJsonHash = resourcesJsonHash?.trim()?.takeIf { it.isNotBlank() }
+            ?: WebSha1Hasher.sha1Hex("[]\n")
+
         val resolvedGenericUiCssUrl = genericUiCssUrl.trim().ifEmpty { WebNamespaceSpec.DEFAULT_GENERICUI_CSS_FILENAME }
         val resolvedGenericUiCssHash = genericUiCssHash?.trim()?.takeIf { it.isNotBlank() }
             ?: WebSha1Hasher.sha1Hex(genericUiCssContent)
@@ -159,13 +170,15 @@ class WebHtmlTemplateEngine(
             .replace("{{THEME_MODE}}", bsTheme)
             .replace("{{NAMESPACE_XML_URL}}", resolvedNamespaceXmlUrl)
             .replace("{{NAMESPACE_XML_HASH}}", resolvedNamespaceXmlHash)
+            .replace("{{RESOURCES_JSON_URL}}", resolvedResourcesJsonUrl)
+            .replace("{{RESOURCES_JSON_HASH}}", resolvedResourcesJsonHash)
             .replace("{{GENERICUI_CSS_URL}}", resolvedGenericUiCssUrl)
             .replace("{{GENERICUI_CSS_HASH}}", resolvedGenericUiCssHash)
             .replace("{{NAMESPACE_CSS}}", WebNamespaceSpec.DEFAULT_NAMESPACE_CSS)
             .replace("{{FAVICON_LINK}}", faviconLink)
             .replace("{{WEB_MANIFEST_AND_PWA_LINKS}}", webManifestAndPwaLinks)
             .replace("{{SPLASH_ICON}}", effectiveSplash.renderIconHtml())
-            .replace("{{SPLASH_STATUS}}", effectiveSplash.statusText)
+            .replace("{{SPLASH_STATUS}}", WebSplashConfig.normalizeStatusText(effectiveSplash.statusText))
             .replace("{{SPLASH_PROGRESS_BAR_CLASS}}", effectiveSplash.progressBarClass)
             .replace("{{ROOT_CONTAINER_ID}}", rootContainerId)
             .replace("{{BOOTSTRAP_CSS_URL}}", cdnConfig.cssCdnUrl)
@@ -173,6 +186,8 @@ class WebHtmlTemplateEngine(
             .replace("{{BOOTSTRAP_JS_URL}}", cdnConfig.jsBundleCdnUrl)
             .replace("{{BOOTSTRAP_JS_INTEGRITY}}", cdnConfig.jsBundleIntegrity)
             .replace("{{CROSSORIGIN}}", cdnConfig.crossOrigin)
+            .replace(" integrity=\"\"", "")
+            .replace(" crossorigin=\"\"", "")
             .replace("{{BOOTSTRAP_ICONS_LINK}}", iconsLink)
             .replace("{{EXTRA_STYLESHEETS}}", extraStylesheets)
             .replace("{{EXTRA_SCRIPTS}}", extraScripts)
@@ -332,10 +347,22 @@ class WebHtmlTemplateEngine(
     }
 
     /**
-     * Ensures the Bootstrap CDN `<link>` and `<script>` nodes are attached to the given
-     * application container or document head.
+     * Ensures the Bootstrap `<link>` stylesheet resources are registered in `<head>` via
+     * [WebStyleSheetManager]. Never injects `<link>`, `<style>`, or `<script>` elements inside
+     * `<genericui:app>`.
      */
     fun injectCdnResourcesInto(targetContainer: WebDomElement) {
+        if (targetContainer.tagName.equals(WebNamespaceSpec.APP_TAG, ignoreCase = true)) {
+            WebStyleSheetManager.mountStyleSheetLink(WebNamespaceSpec.DEFAULT_GENERICUI_CSS_FILENAME, targetContainer)
+            WebStyleSheetManager.mountStyleSheetLink(cdnConfig.cssCdnUrl, targetContainer)
+            if (cdnConfig.includeBootstrapIcons && cdnConfig.iconsCssCdnUrl.isNotBlank()) {
+                WebStyleSheetManager.mountStyleSheetLink(cdnConfig.iconsCssCdnUrl, targetContainer)
+            }
+            for (cssUrl in cdnConfig.extraCssCdnUrls) {
+                WebStyleSheetManager.mountStyleSheetLink(cssUrl, targetContainer)
+            }
+            return
+        }
         val existingIds = targetContainer.children.map { it.id }.toSet()
         for (resourceElement in createCdnResourceElements()) {
             if (resourceElement.id.isEmpty() || resourceElement.id !in existingIds) {
@@ -352,6 +379,7 @@ class WebHtmlTemplateEngine(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{TITLE}}</title>
     <link id="genericui-namespace-spec" rel="namespace" data-namespace-prefix="genericui" data-namespace-uri="https://nexustools.com/ns/genericui" type="application/xml" href="{{NAMESPACE_XML_URL}}?{{NAMESPACE_XML_HASH}}">
+    <link id="genericui-resources-manifest" rel="resources" type="application/json" href="{{RESOURCES_JSON_URL}}?{{RESOURCES_JSON_HASH}}">
     <link id="genericui-css" rel="stylesheet" href="{{GENERICUI_CSS_URL}}?{{GENERICUI_CSS_HASH}}">
 {{FAVICON_LINK}}
 {{WEB_MANIFEST_AND_PWA_LINKS}}
@@ -360,13 +388,13 @@ class WebHtmlTemplateEngine(
 {{EXTRA_STYLESHEETS}}
 </head>
 <body class="bg-body text-body m-0 p-0">
-    <div id="genericui-splash" class="genericui-splash position-fixed top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-body text-body p-4" style="z-index: 2000; transition: opacity 0.35s ease, visibility 0.35s ease;">
-        <div class="d-flex flex-column align-items-center justify-content-center w-100" style="max-width: 420px;">
+    <div id="genericui-splash" class="genericui-splash position-fixed top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-body text-body p-4">
+        <div class="genericui-splash-content d-flex flex-column align-items-center justify-content-center w-100">
 {{SPLASH_ICON}}
             <div id="genericui-splash-title" class="fw-semibold fs-5 mb-2 text-center">{{TITLE}}</div>
-            <div id="genericui-splash-status" class="genericui-splash-status text-body-secondary small mb-3 text-center">{{SPLASH_STATUS}}</div>
-            <div id="genericui-splash-progress" class="progress w-100 mb-2" style="height: 8px;" role="progressbar" aria-label="Application loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-                <div id="genericui-splash-progress-bar" class="{{SPLASH_PROGRESS_BAR_CLASS}}" style="width: 0%" aria-valuenow="0"></div>
+            <div id="genericui-splash-status" class="genericui-splash-status text-body-secondary small mb-3 text-center" data-status="initializing"><span id="genericui-splash-status-icon" class="genericui-splash-status-icon spinner-border spinner-border-sm" aria-hidden="true"></span><span id="genericui-splash-status-text" class="genericui-splash-status-text">{{SPLASH_STATUS}}</span></div>
+            <div id="genericui-splash-progress" class="genericui-splash-progress progress w-100 mb-2" role="progressbar" aria-label="Application loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div id="genericui-splash-progress-bar" class="{{SPLASH_PROGRESS_BAR_CLASS}}" aria-valuenow="0"></div>
             </div>
             <div id="genericui-splash-error" class="genericui-splash-error alert alert-danger d-none text-start w-100 mt-3 mb-0 shadow-sm" role="alert">
                 <div class="d-flex align-items-center mb-2">
@@ -374,11 +402,11 @@ class WebHtmlTemplateEngine(
                     <strong id="genericui-splash-error-title">Application Error</strong>
                 </div>
                 <div id="genericui-splash-error-message" class="genericui-splash-error-message small fw-semibold mb-2"></div>
-                <pre id="genericui-splash-error-stack" class="genericui-splash-error-stack small mb-0 p-2 bg-dark text-light rounded overflow-auto" style="max-height: 240px; white-space: pre-wrap; word-break: break-word;"></pre>
+                <pre id="genericui-splash-error-stack" class="genericui-splash-error-stack small mb-0 p-2 bg-dark text-light rounded overflow-auto"></pre>
             </div>
         </div>
     </div>
-    <genericui:root></genericui:root>
+    <genericui:app></genericui:app>
     <script id="genericui-bootstrap-js" src="{{BOOTSTRAP_JS_URL}}" integrity="{{BOOTSTRAP_JS_INTEGRITY}}" crossorigin="{{CROSSORIGIN}}" defer></script>
 {{EXTRA_SCRIPTS}}
     <script type="loader-wasm" src="{{WASM_URL}}?{{WASM_HASH}}"{{WASM_BINARY_ATTR}}></script>

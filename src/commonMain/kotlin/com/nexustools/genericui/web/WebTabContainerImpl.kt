@@ -11,7 +11,7 @@ import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
  * using Bootstrap `.nav-tabs` + `.tab-pane.fade`, mounting each [WebTabImpl] into the `<ul class="nav nav-tabs">`
  * header strip and each content pane into `<div class="tab-content">`.
  */
-class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer", "tab-container"), TabContainerNativeImpl<WebDomElement> {
+class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer", "tab-container d-flex flex-column"), TabContainerNativeImpl<WebDomElement> {
     override val supportsNativeFadeTransition: Boolean = true
 
     val navListElement: WebDomElement = WebDomElement("ul").apply {
@@ -21,7 +21,11 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
     }
     val tabContentElement: WebDomElement = WebDomElement("div").apply {
         classList.add("tab-content")
+        classList.add("flex-grow-1")
     }
+
+    var currentTabPosition: TabPosition = TabPosition.TOP
+        private set
 
     private val tabImpls = mutableListOf<TabNativeImpl<*>?>()
     private val tabPanes = mutableListOf<Pair<String, NativeImpl<*>>>()
@@ -30,8 +34,24 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
     private var onTabCloseRequestedListener: ((Int) -> Boolean)? = null
 
     init {
+        nativeWidget.classList.add(TabPosition.TOP.cssClass)
         nativeWidget.appendChild(navListElement)
         nativeWidget.appendChild(tabContentElement)
+    }
+
+    override fun addChildNative(child: NativeImpl<*>, index: Int) {
+        // TabContainer manages child mounting into navListElement and tabContentElement via addTabNative.
+    }
+
+    override fun removeChildNative(child: NativeImpl<*>) {
+        // Managed by removeTabNative.
+    }
+
+    override fun clearChildrenNative() {
+        navListElement.clearChildren()
+        tabContentElement.clearChildren()
+        tabImpls.clear()
+        tabPanes.clear()
     }
 
     override fun addTabNative(tabImpl: TabNativeImpl<*>, contentImpl: NativeImpl<*>, index: Int) {
@@ -41,6 +61,18 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         val contentDom = contentImpl.nativeWidget as? WebDomElement
         contentDom?.classList?.add("tab-pane")
         contentDom?.classList?.add("fade")
+
+        val existingIdx = tabImpls.indexOfFirst { it === tabImpl }
+        if (existingIdx >= 0) {
+            tabPanes[existingIdx] = title to contentImpl
+            if (tabDom != null && tabDom.parent !== navListElement) {
+                navListElement.appendChild(tabDom)
+            }
+            if (contentDom != null && contentDom.parent !== tabContentElement) {
+                tabContentElement.appendChild(contentDom)
+            }
+            return
+        }
 
         if (index < 0 || index >= tabPanes.size) {
             val targetIdx = tabPanes.size
@@ -60,6 +92,10 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
             tabPanes.add(index, title to contentImpl)
             if (tabDom != null) navListElement.insertChildAt(index, tabDom)
             if (contentDom != null) tabContentElement.insertChildAt(index, contentDom)
+            webTab?.buttonElement?.addEventListener("click") {
+                val currentIdx = tabImpls.indexOf(tabImpl)
+                if (currentIdx >= 0) setSelectedTabIndex(currentIdx, true)
+            }
         }
     }
 
@@ -94,8 +130,30 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
     }
 
     override fun setTabPositionNative(position: TabPosition) {
+        currentTabPosition = position
         TabPosition.entries.forEach { nativeWidget.classList.remove(it.cssClass) }
         nativeWidget.classList.add(position.cssClass)
+        if (position == TabPosition.BOTTOM) {
+            navListElement.classList.add("mt-auto")
+            navListElement.classList.add("border-top")
+            navListElement.classList.add("border-bottom-0")
+            if (nativeWidget.children.firstOrNull() !== tabContentElement) {
+                nativeWidget.insertChildAt(0, tabContentElement)
+            }
+            if (nativeWidget.children.lastOrNull() !== navListElement) {
+                nativeWidget.appendChild(navListElement)
+            }
+        } else {
+            navListElement.classList.remove("mt-auto")
+            navListElement.classList.remove("border-top")
+            navListElement.classList.remove("border-bottom-0")
+            if (nativeWidget.children.firstOrNull() !== navListElement) {
+                nativeWidget.insertChildAt(0, navListElement)
+            }
+            if (nativeWidget.children.lastOrNull() !== tabContentElement) {
+                nativeWidget.appendChild(tabContentElement)
+            }
+        }
     }
 
     override fun setTabBarStyleNative(style: TabBarStyle) {
@@ -105,6 +163,7 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
 
     override fun setSelectedTabIndex(index: Int, fadeTransition: Boolean) {
         if (index !in tabPanes.indices) return
+        val changed = (selectedIndex != index)
         selectedIndex = index
         tabImpls.forEachIndexed { i, tabImpl ->
             tabImpl?.setSelectedNative(i == index)
@@ -119,7 +178,9 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
                 dom.classList.remove("show")
             }
         }
-        onTabSelectedListener?.invoke(index)
+        if (changed) {
+            onTabSelectedListener?.invoke(index)
+        }
     }
 
     override fun getSelectedTabIndex(): Int = selectedIndex

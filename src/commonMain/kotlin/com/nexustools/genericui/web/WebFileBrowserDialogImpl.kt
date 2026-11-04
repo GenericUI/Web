@@ -30,6 +30,36 @@ class WebFileBrowserDialogImpl : FileBrowserDialogNativeImpl {
     ) {
         cleanupActiveInput()
 
+        if (request.mode == FileBrowserMode.SAVE_FILE && WebBrowserDomBridge.isBrowserEnvironment) {
+            val fileName = (request.suggestedFileName ?: request.defaultFileName)
+                ?.takeIf { it.isNotBlank() }
+                ?: "download.json"
+            val activeFilter = request.filters.getOrNull(request.selectedFilterIndex)
+                ?: request.filters.firstOrNull()
+            val mimeType = activeFilter?.mimeTypes?.firstOrNull()
+                ?: request.filters.firstOrNull()?.mimeTypes?.firstOrNull()
+                ?: if (fileName.endsWith(".json", ignoreCase = true)) {
+                    "application/json;charset=utf-8"
+                } else {
+                    "application/octet-stream"
+                }
+            var writtenBytes = ByteArray(0)
+            val selected = SelectedFile(
+                name = fileName,
+                pathOrUri = fileName,
+                sizeBytes = 0L,
+                mimeType = mimeType,
+                isDirectory = false,
+                bytesReader = { writtenBytes },
+                bytesWriter = { payload ->
+                    writtenBytes = payload
+                    WebBrowserDomBridge.triggerBrowserFileDownload(fileName, mimeType, payload)
+                }
+            )
+            callback.onFilesSelected(listOf(selected), activeFilter)
+            return
+        }
+
         val input = WebDomElement("input").apply {
             setAttribute("type", "file")
             setAttribute("tabindex", "-1")
@@ -48,7 +78,6 @@ class WebFileBrowserDialogImpl : FileBrowserDialogNativeImpl {
         when (request.mode) {
             FileBrowserMode.SELECT_FOLDER -> {
                 input.webkitdirectory = true
-                input.directory = true
                 input.setAttribute("webkitdirectory", "true")
                 input.setAttribute("directory", "true")
             }

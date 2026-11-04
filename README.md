@@ -70,6 +70,40 @@ When `styles { globalStyleSheet = "styles/main.scss" }` is configured in `build.
 
 ---
 
+## Bare-Metal Browser Async I/O, `IFileSystem`, `PreferenceStore` (`window.localStorage`), `window.indexedDB` (`UserDirectory` vs. `Database`), & Networking
+
+### 1. `PreferenceStore` (`WebPreferenceStoreImpl` — `window.localStorage` with `"genericui:"` Key Prefix)
+- **`WebPreferenceStoreImpl`**: Backed by browser **`window.localStorage`** and `window.addEventListener("storage", ...)` cross-tab change notifications.
+- **`"genericui:"` Key Prefix (`genericui:<key>`)**: Every preference key is stored in `window.localStorage` under the **`"genericui:"`** prefix (`genericui:<key>`, e.g., `localStorage.getItem("genericui:$key")` / `localStorage.setItem("genericui:$key", json)`), while `keys()` strips the `"genericui:"` prefix and ignores non-prefixed keys. This prevents collisions with third-party JavaScript libraries, analytics scripts, plugins, and browser addons sharing the page's `window.localStorage` origin.
+
+### 2. Async `Readable`, `Writable`, `ByteBuffer`, `IFileSystem`, & `FileSystemAvailability`
+- **`FileSystemAvailability`**:
+  - **`FileSystem.isAvailable()` returns `FileSystemAvailability.WithPermission`**: Direct local file and directory access in the browser uses the **File System Access API** (`window.showOpenFilePicker`, `window.showSaveFilePicker`, `window.showDirectoryPicker`, `FileSystemFileHandle`, `FileSystemDirectoryHandle`, and `FileSystemWritableFileStream`) with automatic fallback to `<input type="file">` and `<a download>` when picker handles are unavailable.
+  - **`UserDirectory.isAvailable()` (`ConfigDirectory` & `CacheDirectory`) returns `FileSystemAvailability.Always`**: Browser-persisted application config and cache directories require zero user prompts.
+- **Non-Blocking Browser Streams (`Readable`, `Writable`, & `ByteBuffer`)**:
+  - `WebFileSystemNativeImpl` bridges browser `File` / `Blob` / `ReadableStream` and `FileSystemWritableFileStream` directly to GenericUI's `Readable`, `Writable`, and `ByteBuffer` APIs (`read`, `write`, `openReadable`, `openWritable`, `openReadableFromFileDialog`, `openReadablesFromFileDialog`, `openWritableFromFileDialog`).
+- **`ConfigDirectory` & `CacheDirectory` (`WebUserDirectoryNativeImpl` — Direct `window.indexedDB` Without `Database`)**:
+  - On `:web`, `ConfigDirectory` (`scheme = "config"`) and `CacheDirectory` (`scheme = "cache"`) implement `IFileSystem` (`read`, `write`, `openReadable`, `openWritable`, `openDatabase`) and persist async binary `ByteBuffer` / `Readable` / `Writable` files **directly in browser `window.indexedDB`** inside the dedicated **`"genericui_user_dirs:<appName>"`** database (using the `"config"` and `"cache"` object stores) **without using the `Database` class**.
+
+### 3. Native `Database` (`window.indexedDB` with Strictly Isolated `"genericui_db:..."` + `"tbl:..."` Namespaces)
+- Backed directly by browser **`window.indexedDB`** (`IDBFactory`, `IDBDatabase`, `IDBTransaction`, `IDBObjectStore`, `IDBIndex`, and `IDBCursorWithValue`) in `WebDatabaseNativeImpl`.
+- **Zero Namespace Collision with `ConfigDirectory` & `CacheDirectory`**:
+  - While `ConfigDirectory` and `CacheDirectory` use `window.indexedDB` directly in `"genericui_user_dirs:<appName>"` (object stores `"config"` and `"cache"`), `Database` on `:web` opens its own IndexedDB database named **`"genericui_db:<databaseName>"`** (`"genericui_db:..."`) and prefixes every table's `IDBObjectStore` name with **`"tbl:<tableName>"`** (`"tbl:..."`).
+  - Because both the IndexedDB database name (`"genericui_db:..."` vs. `"genericui_user_dirs:..."`) and the object store names (`"tbl:..."` vs. `"config"` / `"cache"`) are disjoint, `Database` on `:web` can **never conflict** with `"config"` or `"cache"` user directories, even if a user creates a `Database` table named `"config"` or `"cache"`.
+- Evaluates structured `DatabaseTableSchema`, `DatabaseRecord`, `DatabaseQuery`, and `DatabaseFilter` ASTs asynchronously against IndexedDB object stores and secondary indexes with **zero string query parsing**, supporting `defineTable`, `putRecord`, `getRecord`, `query`, `count`, `deleteWhere`, and `ByteBuffer` / `Readable` / `Writable` binary streaming (`read`, `write`, `openReadable`, `openWritable`).
+
+### 4. Async `Network` (`TcpClient`, `UdpClient`), `HttpClient`, `WebSocket` / `SocketIoClient`, & `IApplication.isOffline`
+- **Raw TCP & UDP Capability Reporting (`Network.supportsTcp() == false`, `Network.supportsUdp() == false`)**:
+  - Because web browsers disallow raw OS TCP and UDP sockets, `WebNativeFactory.supportsTcp()`, `WebNativeFactory.supportsUdp()`, `Network.supportsTcp()`, `Network.supportsUdp()`, `TcpClient.supports()`, and `UdpClient.supports()` all return **`false`** on `:web`.
+- **Async `HttpClient` (`WebHttpClientNativeImpl`)**:
+  - Backed by the browser `window.fetch()` API (`AbortController` timeouts, `Headers`, `Uint8Array` / `ByteBuffer` request bodies, and `Response.body` `ReadableStream` chunked `Readable` streaming via `openStream`).
+- **Async `WebSocket` & `SocketIoClient` (`WebWebSocketNativeImpl`)**:
+  - Backed by the browser `window.WebSocket` API (`binaryType = "arraybuffer"` for binary `ByteArray` / `ByteBuffer` frames and UTF-8 text frames), powering both raw `WebSocket` connections and the Engine.IO v4 / Socket.IO v4 `SocketIoClient` (`connect`, `emit`, `emitWithAck`, `on`, `once`, custom namespaces).
+- **`IApplication.isOffline` Connectivity Monitoring (`WebNetworkMonitorImpl`)**:
+  - Queries `window.navigator.onLine` and listens to browser `window.addEventListener("online", ...)` and `window.addEventListener("offline", ...)` events via `WebBrowserDomBridge` to update `app.isOffline` / `app.isOnline` in real time and notify listeners registered via `app.addOfflineListener(...)` and `app.setOnOfflineChanged(...)`.
+
+---
+
 ## Detailed Documentation
 - [Web Backend Architecture (`docs/web-backend.md`)](docs/web-backend.md)
 - [Wasm / JS Loader & Splash Screen (`docs/wasm-js-loader-and-splash.md`)](docs/wasm-js-loader-and-splash.md)

@@ -72,9 +72,6 @@ class WebDomElement(val tagName: String) {
     val enumClasses: Set<String>
         get() = backingEnumClassList.toSet()
 
-    val enumClassList: Set<String>
-        get() = backingEnumClassList.toSet()
-
     fun setEnumClasses(classes: Collection<String>) {
         backingEnumClassList.clear()
         for (raw in classes) {
@@ -238,12 +235,6 @@ class WebDomElement(val tagName: String) {
             WebBrowserDomBridge.syncDirectory(this, value)
         }
 
-    var directory: Boolean = false
-        set(value) {
-            field = value
-            WebBrowserDomBridge.syncDirectory(this, value)
-        }
-
     var accept: String = ""
         set(value) {
             field = value
@@ -252,16 +243,24 @@ class WebDomElement(val tagName: String) {
 
     var type: String = ""
     var tabIndex: Int = 0
+    private var suppressBrowserScrollSync: Boolean = false
+
     var scrollTop: Double = 0.0
+        set(value) {
+            field = value
+            if (!suppressBrowserScrollSync) {
+                WebBrowserDomBridge.syncScrollTop(this, value)
+            }
+        }
     var scrollLeft: Double = 0.0
+        set(value) {
+            field = value
+            if (!suppressBrowserScrollSync) {
+                WebBrowserDomBridge.syncScrollLeft(this, value)
+            }
+        }
     var scrollHeight: Int = 600
     var scrollWidth: Int = 800
-
-    var parentElement: WebDomElement?
-        get() = parent
-        set(value) {
-            parent = value
-        }
 
     private var explicitClientWidth: Int = 800
     private var explicitClientHeight: Int = 600
@@ -309,8 +308,31 @@ class WebDomElement(val tagName: String) {
         this.checked = newChecked
     }
 
+    internal fun updateScrollFromBrowser(
+        newScrollTop: Double,
+        newScrollLeft: Double,
+        clientW: Int = 0,
+        clientH: Int = 0,
+        scrollW: Int = 0,
+        scrollH: Int = 0
+    ) {
+        suppressBrowserScrollSync = true
+        try {
+            this.scrollTop = newScrollTop
+            this.scrollLeft = newScrollLeft
+            if (clientW > 0) this.explicitClientWidth = clientW
+            if (clientH > 0) this.explicitClientHeight = clientH
+            if (scrollW > 0) this.scrollWidth = scrollW
+            if (scrollH > 0) this.scrollHeight = scrollH
+        } finally {
+            suppressBrowserScrollSync = false
+        }
+    }
+
     internal fun dispatchFromBrowser(type: String, payload: Any? = null) {
+        if (disabled && type in DISABLED_BLOCKED_EVENTS) return
         listeners[type]?.toList()?.forEach { it(payload) }
+        forwardGlobalPointerDragIfNeeded(type, payload)
     }
 
     fun setAttribute(name: String, value: String) {
@@ -328,6 +350,7 @@ class WebDomElement(val tagName: String) {
     fun hasAttribute(name: String): Boolean = name in attributes
 
     fun appendChild(child: WebDomElement) {
+        if (child.parent === this && children.lastOrNull() === child) return
         child.parent?.removeChild(child)
         child.parent = this
         children.add(child)
@@ -335,6 +358,10 @@ class WebDomElement(val tagName: String) {
     }
 
     fun insertChildAt(index: Int, child: WebDomElement) {
+        if (child.parent === this) {
+            if ((index < 0 || index >= children.size) && children.lastOrNull() === child) return
+            if (index in children.indices && children[index] === child) return
+        }
         child.parent?.removeChild(child)
         child.parent = this
         if (index < 0 || index >= children.size) {
@@ -378,7 +405,33 @@ class WebDomElement(val tagName: String) {
     }
 
     fun dispatchEvent(type: String, payload: Any? = null) {
+        if (disabled && type in DISABLED_BLOCKED_EVENTS) return
         listeners[type]?.toList()?.forEach { it(payload) }
+        forwardGlobalPointerDragIfNeeded(type, payload)
+    }
+
+    private fun forwardGlobalPointerDragIfNeeded(type: String, payload: Any?) {
+        val pe = payload as? com.nexustools.genericui.event.PointerEvent
+        when (type) {
+            "pointermove", "mousemove" -> {
+                if (pe != null) {
+                    dispatchHeadlessSeekBarGlobalMove(pe)
+                    if (com.nexustools.genericui.event.PointerDragManager.isDragging) {
+                        com.nexustools.genericui.event.PointerDragManager.notifyGlobalPointerMove(pe)
+                    }
+                }
+            }
+            "pointerup", "mouseup", "pointercancel" -> {
+                dispatchHeadlessSeekBarGlobalUp(pe)
+                if (com.nexustools.genericui.event.PointerDragManager.isDragging) {
+                    if (pe != null) {
+                        com.nexustools.genericui.event.PointerDragManager.notifyGlobalPointerUp(pe)
+                    } else {
+                        com.nexustools.genericui.event.PointerDragManager.notifyGlobalPointerUp()
+                    }
+                }
+            }
+        }
     }
 
     fun click() {
@@ -474,5 +527,19 @@ class WebDomElement(val tagName: String) {
 
     companion object {
         const val LONG_PRESS_THRESHOLD_MS: Int = 500
+        private val DISABLED_BLOCKED_EVENTS = setOf(
+            "mouseenter",
+            "mouseover",
+            "focus",
+            "pointerdown",
+            "mousedown",
+            "pointerup",
+            "mouseup",
+            "click",
+            "dblclick",
+            "contextmenu",
+            "keydown",
+            "keyup"
+        )
     }
 }

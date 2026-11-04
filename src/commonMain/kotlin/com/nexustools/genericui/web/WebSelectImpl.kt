@@ -35,9 +35,6 @@ class WebSelectImpl : WebBaseNativeImpl("select", "form-select"), SelectNativeIm
     override fun setSelectedValue(value: String?) {
         selectedValue = value
         nativeWidget.value = value ?: ""
-        if (value != null) {
-            onSelectionChangedListener?.invoke(value)
-        }
     }
 
     override fun getSelectedValue(): String? = selectedValue

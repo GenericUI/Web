@@ -1,18 +1,37 @@
 package com.nexustools.genericui.web
 
 import com.nexustools.genericui.image.*
-import com.nexustools.genericui.image.cache.ImageCacheManager
 import com.nexustools.genericui.image.codec.LibJpegCodec
 import com.nexustools.genericui.image.codec.LibPngCodec
 import com.nexustools.genericui.image.codec.LibWebpCodec
 import com.nexustools.genericui.nativeimpl.image.ImageCodecNativeImpl
+import com.nexustools.genericui.res.DataUrlCodec
+import com.nexustools.genericui.util.WeakReference
 
 /**
- * Web browser (`createImageBitmap` / `HTMLImageElement` + `OffscreenCanvas` / `HTMLCanvasElement.toBlob`)
- * implementation of [ImageCodecNativeImpl].
+ * Web browser implementation of [ImageCodecNativeImpl] backed by an invisible `HTMLImageElement`
+ * (`<img style="display: none" aria-hidden="true">`).
+ *
+ * - Sets `src` on the invisible `HTMLImageElement` and watches for `onload` / `onerror` while also
+ *   checking `img.complete` so `:web` properly simulates and executes asynchronous image loading.
+ * - Sets [usesBrowserManagedImageLoading] to `true` and performs **no** custom download caching of its own,
+ *   relying 100% on the web browser's native HTTP/image cache and storing only [WeakReference]s to active objects.
  */
 class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
-    override val codecBackendName: String = "web-browser-image-bitmap"
+    override val codecBackendName: String = "web-browser-html-image-element"
+
+    override val usesBrowserManagedImageLoading: Boolean = true
+
+    override var isDisposed: Boolean = false
+        private set
+
+    private var lastInvisibleImageElementRef: WeakReference<WebDomElement>? = null
+
+    /**
+     * Returns the most recently created invisible `HTMLImageElement` ([WebDomElement]) if still referenced.
+     */
+    val lastInvisibleImageElement: WebDomElement?
+        get() = lastInvisibleImageElementRef?.get()
 
     override fun probeMetadata(source: ImageSource): ImageMetadata? {
         source.memoryBuffer?.let { buf ->
@@ -24,9 +43,7 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
                 colorSpace = buf.colorSpace
             )
         }
-        val bytes = source.encodedBytes
-            ?: source.uriOrPath?.let { ImageCacheManager.fetchAndCacheBytes(it) }
-            ?: return null
+        val bytes = resolveImmediateBytesWithoutCaching(source) ?: return null
         if (bytes.isEmpty()) return null
         return when (ImageFormat.detectFromHeader(bytes)) {
             ImageFormat.JPEG -> LibJpegCodec.probeJpegMetadata(bytes)
@@ -38,9 +55,7 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
 
     override fun decode(source: ImageSource, options: ImageDecodeOptions): ImageBuffer? {
         source.memoryBuffer?.let { return it.copy() }
-        val bytes = source.encodedBytes
-            ?: source.uriOrPath?.let { ImageCacheManager.fetchAndCacheBytes(it) }
-            ?: return null
+        val bytes = resolveImmediateBytesWithoutCaching(source) ?: return null
         if (bytes.isEmpty()) return null
         return when (ImageFormat.detectFromHeader(bytes)) {
             ImageFormat.JPEG -> LibJpegCodec.decode(bytes)
@@ -48,6 +63,100 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
             ImageFormat.WEBP -> LibWebpCodec.decode(bytes)
             else -> null
         }
+    }
+
+    override fun decodeAsync(
+        source: ImageSource,
+        options: ImageDecodeOptions,
+        onLoaded: (ImageBuffer) -> Unit,
+        onError: (Throwable) -> Unit
+    ): Boolean {
+        source.memoryBuffer?.let { existing ->
+            onLoaded(existing.copy())
+            return true
+        }
+
+        // Create an invisible HTMLImageElement, set src, and watch for onLoad / check if already loaded
+        val invisibleImg = WebDomElement("img")
+        invisibleImg.style["display"] = "none"
+        invisibleImg.style["position"] = "fixed"
+        invisibleImg.style["width"] = "0px"
+        invisibleImg.style["height"] = "0px"
+        invisibleImg.style["pointer-events"] = "none"
+        invisibleImg.setAttribute("aria-hidden", "true")
+        invisibleImg.setAttribute("decoding", "async")
+        lastInvisibleImageElementRef = WeakReference(invisibleImg)
+
+        val resolvedSrc = resolveSourceUrlForHtmlImage(source)
+        if (resolvedSrc.isNullOrBlank()) {
+            invisibleImg.setAttribute("data-error", "true")
+            onError(IllegalArgumentException("Empty image source URL"))
+            return true
+        }
+
+        // 1. Live browser environment: bind to real DOM HTMLImageElement onload / complete
+        val handledInBrowser = WebBrowserDomBridge.bindInvisibleHtmlImageLoader(
+            imgElement = invisibleImg,
+            src = resolvedSrc,
+            onLoaded = { natW, natH ->
+                val decoded = decode(source, options) ?: ImageBuffer(
+                    width = options.targetWidth ?: natW.coerceAtLeast(1),
+                    height = options.targetHeight ?: natH.coerceAtLeast(1),
+                    pixelFormat = options.preferredPixelFormat
+                )
+                onLoaded(decoded)
+            },
+            onError = { message ->
+                onError(IllegalStateException(message))
+            }
+        )
+        if (handledInBrowser) {
+            return true
+        }
+
+        // 2. Simulated / headless web environment: watch load/error on invisibleImg and check if loaded
+        var settled = false
+        val completeLoad = {
+            if (!settled) {
+                settled = true
+                invisibleImg.setAttribute("data-complete", "true")
+                val decoded = decode(source, options) ?: ImageBuffer(
+                    width = options.targetWidth ?: 64,
+                    height = options.targetHeight ?: 64,
+                    pixelFormat = options.preferredPixelFormat
+                )
+                invisibleImg.setAttribute("data-natural-width", decoded.width.toString())
+                invisibleImg.setAttribute("data-natural-height", decoded.height.toString())
+                onLoaded(decoded)
+            }
+        }
+        val failLoad = {
+            if (!settled) {
+                settled = true
+                invisibleImg.setAttribute("data-error", "true")
+                onError(IllegalStateException("Failed to load image: $resolvedSrc"))
+            }
+        }
+
+        invisibleImg.addEventListener("load") { completeLoad() }
+        invisibleImg.addEventListener("error") { failLoad() }
+        invisibleImg.setAttribute("src", resolvedSrc)
+
+        // Check if already marked complete or if immediate simulated completion should run
+        if (invisibleImg.getAttribute("data-complete") == "true") {
+            completeLoad()
+        } else if (isInvalidSimulatedUrl(resolvedSrc)) {
+            if (WebBrowserDomBridge.deferSimulatedImageLoads) {
+                pendingInvisibleImageRefs.add(WeakReference(invisibleImg))
+            } else {
+                invisibleImg.dispatchFromBrowser("error", null)
+            }
+        } else if (WebBrowserDomBridge.deferSimulatedImageLoads) {
+            pendingInvisibleImageRefs.add(WeakReference(invisibleImg))
+        } else {
+            invisibleImg.dispatchFromBrowser("load", null)
+        }
+        return true
     }
 
     override fun decodeAnimated(source: ImageSource, options: ImageDecodeOptions): AnimatedImage? {
@@ -68,5 +177,44 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
         }
     }
 
-    override fun dispose() {}
+    override fun dispose() {
+        isDisposed = true
+        lastInvisibleImageElementRef?.clear()
+        lastInvisibleImageElementRef = null
+    }
+
+    private fun resolveSourceUrlForHtmlImage(source: ImageSource): String? {
+        source.encodedBytes?.let { bytes ->
+            val fmt = ImageFormat.detectFromHeader(bytes)
+            val mime = when (fmt) {
+                ImageFormat.JPEG -> "image/jpeg"
+                ImageFormat.WEBP -> "image/webp"
+                ImageFormat.GIF -> "image/gif"
+                ImageFormat.SVG -> "image/svg+xml"
+                else -> "image/png"
+            }
+            return DataUrlCodec.encodeBytes(bytes, mime)
+        }
+        val uri = source.uriOrPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (uri.startsWith("res://", ignoreCase = true)) {
+            return WebBrowserDomBridge.getPreloadedResourceDataUrl(uri) ?: uri
+        }
+        return uri
+    }
+
+    private fun resolveImmediateBytesWithoutCaching(source: ImageSource): ByteArray? {
+        source.encodedBytes?.let { return it }
+        val uri = source.uriOrPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (DataUrlCodec.isDataUrl(uri)) {
+            return DataUrlCodec.decodeBytes(uri)
+        }
+        return WebBrowserDomBridge.getPreloadedResourceBytes(uri)
+    }
+
+    private fun isInvalidSimulatedUrl(url: String): Boolean {
+        val lower = url.trim().lowercase()
+        return lower.startsWith("error://") ||
+            lower.startsWith("invalid://") ||
+            lower.endsWith(".invalid")
+    }
 }

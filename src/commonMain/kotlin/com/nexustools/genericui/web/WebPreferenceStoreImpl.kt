@@ -9,9 +9,10 @@ import com.nexustools.genericui.nativeimpl.system.PreferenceStoreNativeImpl
  * Web (`js` + `wasmJs`) implementation of [PreferenceStoreNativeImpl] backed by `window.localStorage`
  * and the browser's native `window.addEventListener("storage", ...)` event.
  *
- * Each preference `key` is stored **directly** as a `localStorage` key (`localStorage.getItem(key)` /
- * `localStorage.setItem(key, json)`) without any key prefixing, with values serialized as JSON via
- * [PreferenceObjectCodec].
+ * Every preference `key` is stored in `window.localStorage` with the [KEY_PREFIX] (`"genericui:"`)
+ * prefix (`localStorage.getItem("genericui:<key>")` / `localStorage.setItem("genericui:<key>", json)`)
+ * to prevent collisions with third-party JavaScript libraries, plugins, and browser extensions, while
+ * exposing unprefixed logical keys through [keys] and [PreferenceChangeListener].
  */
 class WebPreferenceStoreImpl(
     override val appName: String = "GenericUI"
@@ -27,60 +28,93 @@ class WebPreferenceStoreImpl(
     private val listeners = mutableListOf<PreferenceChangeListener>()
 
     init {
-        WebBrowserDomBridge.registerStorageListener { key, newValue ->
+        WebBrowserDomBridge.registerStorageListener { rawKey, newValue ->
             if (isDisposed) return@registerStorageListener
-            if (key == null) {
+            if (rawKey == null) {
+                fallbackStorage.clear()
                 notifyListeners(null, null)
-            } else if (newValue == null) {
-                notifyListeners(key, null)
+                return@registerStorageListener
+            }
+            if (!rawKey.startsWith(KEY_PREFIX)) {
+                return@registerStorageListener
+            }
+            val logicalKey = fromStorageKey(rawKey)
+            if (newValue == null) {
+                fallbackStorage.remove(logicalKey)
+                notifyListeners(logicalKey, null)
             } else {
+                fallbackStorage[logicalKey] = newValue
                 val parsed = runCatching { PreferenceObjectCodec.fromJson(newValue) }
                     .getOrDefault(newValue)
-                notifyListeners(key, parsed)
+                notifyListeners(logicalKey, parsed)
             }
         }
     }
 
+    fun toStorageKey(key: String): String =
+        if (key.startsWith(KEY_PREFIX)) key else "$KEY_PREFIX$key"
+
+    fun fromStorageKey(rawKey: String): String =
+        rawKey.removePrefix(KEY_PREFIX)
+
     override fun writeElement(key: String, element: PreferenceElement) {
+        val logicalKey = fromStorageKey(key)
         if (element.isNull) {
-            remove(key)
+            remove(logicalKey)
             return
         }
         val json = PreferenceObjectCodec.elementToJson(element)
-        fallbackStorage[key] = json
-        WebBrowserDomBridge.localStorageSetItem(key, json)
-        notifyListeners(key, element.toPlainValue())
+        fallbackStorage[logicalKey] = json
+        WebBrowserDomBridge.localStorageSetItem(toStorageKey(logicalKey), json)
+        notifyListeners(logicalKey, element.toPlainValue())
     }
 
     override fun readElement(key: String): PreferenceElement? {
-        val raw = WebBrowserDomBridge.localStorageGetItem(key) ?: fallbackStorage[key] ?: return null
+        val logicalKey = fromStorageKey(key)
+        val raw = WebBrowserDomBridge.localStorageGetItem(toStorageKey(logicalKey))
+            ?: fallbackStorage[logicalKey]
+            ?: return null
         return runCatching { PreferenceObjectCodec.fromJsonElement(raw) }
             .getOrElse { PreferenceElement.ofString(raw) }
     }
 
-    override fun contains(key: String): Boolean =
-        WebBrowserDomBridge.localStorageGetItem(key) != null || fallbackStorage.containsKey(key)
+    override fun contains(key: String): Boolean {
+        val logicalKey = fromStorageKey(key)
+        return WebBrowserDomBridge.localStorageGetItem(toStorageKey(logicalKey)) != null ||
+            fallbackStorage.containsKey(logicalKey)
+    }
 
     override fun keys(): Set<String> {
         val result = LinkedHashSet<String>()
-        result.addAll(WebBrowserDomBridge.localStorageKeys())
+        for (rawKey in WebBrowserDomBridge.localStorageKeys()) {
+            if (rawKey.startsWith(KEY_PREFIX)) {
+                val logicalKey = fromStorageKey(rawKey)
+                if (logicalKey.isNotEmpty()) {
+                    result.add(logicalKey)
+                }
+            }
+        }
         result.addAll(fallbackStorage.keys)
         return result
     }
 
     override fun remove(key: String) {
-        val existed = contains(key)
-        fallbackStorage.remove(key)
-        WebBrowserDomBridge.localStorageRemoveItem(key)
+        val logicalKey = fromStorageKey(key)
+        val existed = contains(logicalKey)
+        fallbackStorage.remove(logicalKey)
+        WebBrowserDomBridge.localStorageRemoveItem(toStorageKey(logicalKey))
         if (existed) {
-            notifyListeners(key, null)
+            notifyListeners(logicalKey, null)
         }
     }
 
     override fun clear() {
         val hadAny = keys().isNotEmpty()
         fallbackStorage.clear()
-        WebBrowserDomBridge.localStorageClear()
+        val prefixedKeys = WebBrowserDomBridge.localStorageKeys().filter { it.startsWith(KEY_PREFIX) }
+        for (rawKey in prefixedKeys) {
+            WebBrowserDomBridge.localStorageRemoveItem(rawKey)
+        }
         if (hadAny) {
             notifyListeners(null, null)
         }
@@ -108,5 +142,15 @@ class WebPreferenceStoreImpl(
         for (listener in snapshot) {
             listener.onPreferenceChanged(appName, key, newValue)
         }
+    }
+
+    companion object {
+        const val KEY_PREFIX: String = "genericui:"
+
+        fun toStorageKey(key: String): String =
+            if (key.startsWith(KEY_PREFIX)) key else "$KEY_PREFIX$key"
+
+        fun fromStorageKey(rawKey: String): String =
+            rawKey.removePrefix(KEY_PREFIX)
     }
 }

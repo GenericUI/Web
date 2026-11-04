@@ -10,14 +10,13 @@
     </commonAttributes>
     <elements>
         <!-- Core Base Component -->
-        <element name="root" tag="genericui:root" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
+        <element name="app" tag="genericui:app" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
         <element name="component" tag="genericui:component" componentClass="AbstractComponent" category="core" display="block" role="generic" description="Base GenericUI component element."/>
         <element name="fragment" tag="genericui:fragment" componentClass="Fragment" category="core" display="block" role="region" description="Modular lifecycle-aware UI fragment container."/>
         <element name="fragment-container" tag="genericui:fragment-container" componentClass="FragmentContainer" category="core" display="block" role="region" description="Host container mounting and transitioning Fragment instances."/>
-        <element name="scrollfragment" tag="genericui:scrollfragment" componentClass="ScrollFragment" category="shell" display="block" role="region" description="Scrollable activity-like lifecycle fragment container."/>
 
         <!-- Shell & Window Chrome -->
-        <element name="window" tag="genericui:window" componentClass="Window" category="shell" display="flex" role="region" description="Top-level GenericUI window container inside genericui:root."/>
+        <element name="window" tag="genericui:window" componentClass="Window" category="shell" display="flex" role="region" description="Top-level GenericUI window container inside genericui:app."/>
         <element name="menubar" tag="genericui:menubar" componentClass="MenuBar" category="shell" display="flex" role="menubar" description="Top-level horizontal application menu bar."/>
         <element name="menu" tag="genericui:menu" componentClass="Menu" category="shell" display="inline-block" role="menu" description="Pull-down or cascading submenu container.">
             <attribute name="data-menu-label" type="string" description="Menu header label."/>
@@ -70,8 +69,11 @@
         <element name="flexbox" tag="genericui:flexbox" componentClass="FlexBox" category="layout" display="flex" role="group" description="Configurable CSS Flexbox layout container."/>
         <element name="hstack" tag="genericui:hstack" componentClass="HStack" category="layout" display="flex" role="group" description="Horizontal flex stack layout container."/>
         <element name="vstack" tag="genericui:vstack" componentClass="VStack" category="layout" display="flex" role="group" description="Vertical flex stack layout container."/>
+        <element name="spacer" tag="genericui:spacer" componentClass="Spacer" category="layout" display="inline-block" role="presentation" description="Flexible or fixed-size layout spacing element."/>
         <element name="scrollview" tag="genericui:scrollview" componentClass="ScrollView" category="layout" display="block" role="region" description="Scrollable viewport container."/>
         <element name="stepscrollview" tag="genericui:stepscrollview" componentClass="StepScrollView" category="layout" display="block" role="region" description="Discrete step-by-step scrollable container."/>
+        <element name="aspectratiocontainer" tag="genericui:aspectratiocontainer" componentClass="AspectRatioContainer" category="layout" display="block" role="group" description="Bootstrap aspect-ratio layout container (.ratio)."/>
+        <element name="layered-container" tag="genericui:layered-container" componentClass="LayeredContainer" category="layout" display="block" role="group" description="Multi-layer Z-ordered stacking container supporting full-bleed and floating corner/edge overlays."/>
 
         <!-- Lazy Virtualized Collections -->
         <element name="lazylist" tag="genericui:lazylist" componentClass="LazyList" category="lazy" display="block" role="list" description="Virtualized scrolling list mounting only visible item DOM nodes."/>
@@ -135,6 +137,7 @@
         <!-- Rich Typography & Content -->
         <element name="markdownview" tag="genericui:markdownview" componentClass="MarkdownView" category="typography" display="block" role="document" description="Formatted Markdown document viewer."/>
         <element name="avatar" tag="genericui:avatar" componentClass="Avatar" category="content" display="inline-flex" role="img" description="Circular or rounded user/entity avatar with image or initials fallback."/>
+        <element name="text-bubble" tag="genericui:text-bubble" componentClass="TextBubble" category="content" display="inline-flex" role="status" description="Pill/bubble overlay control displaying an optional icon and text label."/>
         <element name="masterdetailstepselect" tag="genericui:masterdetailstepselect" componentClass="MasterDetailStepSelect" category="content" display="flex" role="region" description="Two-pane master category and detail item selector."/>
         <element name="horizontalcarouselselector" tag="genericui:horizontalcarouselselector" componentClass="HorizontalCarouselSelector" category="content" display="flex" role="region" description="Horizontal card carousel with previous/next selection controls."/>
 

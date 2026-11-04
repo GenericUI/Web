@@ -31,9 +31,11 @@ class WebRangeSliderImpl : WebBaseNativeImpl("input", "form-range"), RangeSlider
     }
 
     override fun setValue(value: Double) {
-        currentVal = value.coerceIn(minVal, maxVal)
-        nativeWidget.value = currentVal.toString()
-        onValueChangedListener?.invoke(currentVal)
+        val clamped = value.coerceIn(minVal, maxVal)
+        if (kotlin.math.abs(currentVal - clamped) > 1e-4 || nativeWidget.value.isEmpty()) {
+            currentVal = clamped
+            nativeWidget.value = currentVal.toString()
+        }
     }
 
     override fun getValue(): Double = currentVal

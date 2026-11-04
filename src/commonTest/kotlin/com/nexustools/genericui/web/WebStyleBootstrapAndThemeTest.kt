@@ -10,7 +10,8 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapWidth
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.enums.css.CssCursor
 import com.nexustools.genericui.enums.ui.ThemeMode
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCustomCursor
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.css.CssProperty
@@ -21,6 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class WebStyleBootstrapAndThemeTest {
@@ -60,14 +62,14 @@ class WebStyleBootstrapAndThemeTest {
         assertFalse(webImpl.hasClass("btn-danger"))
         assertEquals("", webImpl.getClass())
 
-        // Yet on WebDomElement, the enum classes are present in enumClassList and effective DOM className
-        assertTrue("btn" in dom.enumClassList)
-        assertTrue("btn-danger" in dom.enumClassList)
-        assertTrue("btn-lg" in dom.enumClassList)
-        assertTrue("w-100" in dom.enumClassList)
-        assertTrue("h-50" in dom.enumClassList)
-        assertTrue("mt-3" in dom.enumClassList)
-        assertTrue("px-4" in dom.enumClassList)
+        // Yet on WebDomElement, the enum classes are present in enumClasses and effective DOM className
+        assertTrue("btn" in dom.enumClasses)
+        assertTrue("btn-danger" in dom.enumClasses)
+        assertTrue("btn-lg" in dom.enumClasses)
+        assertTrue("w-100" in dom.enumClasses)
+        assertTrue("h-50" in dom.enumClasses)
+        assertTrue("mt-3" in dom.enumClasses)
+        assertTrue("px-4" in dom.enumClasses)
         val effectiveClass = dom.getEffectiveDomClassName()
         assertTrue(effectiveClass.contains("btn-danger"))
         assertTrue(effectiveClass.contains("w-100"))
@@ -83,14 +85,14 @@ class WebStyleBootstrapAndThemeTest {
 
         // Null-clearing or setting BootstrapType.NONE removes semantic enum classes while preserving user classes
         bs.type = BootstrapType.NONE
-        assertFalse("btn-danger" in dom.enumClassList)
-        assertFalse("btn-" in dom.enumClassList)
+        assertFalse("btn-danger" in dom.enumClasses)
+        assertFalse("btn-" in dom.enumClasses)
         bs.type = null
         bs.size = null
         bs.width = null
-        assertFalse("btn-danger" in dom.enumClassList)
-        assertFalse("btn-lg" in dom.enumClassList)
-        assertFalse("w-100" in dom.enumClassList)
+        assertFalse("btn-danger" in dom.enumClasses)
+        assertFalse("btn-lg" in dom.enumClasses)
+        assertFalse("w-100" in dom.enumClasses)
         assertEquals(setOf("my-custom-btn"), btn.getClasses())
     }
 
@@ -117,13 +119,13 @@ class WebStyleBootstrapAndThemeTest {
             fallback = CssCursor.CROSSHAIR
         )
 
-        assertEquals("rgba(17, 34, 51, 1.0)", dom.getStyle("background-color"))
+        assertEquals("rgb(17, 34, 51)", dom.getStyle("background-color"))
         assertTrue(dom.isStyleImportant("background-color"))
         assertEquals("75%", dom.getStyle("width"))
-        assertEquals("url(\"/assets/cursors/brush.png\") 4 12, crosshair", dom.getStyle("cursor"))
+        assertEquals("url('/assets/cursors/brush.png') 4 12, crosshair", dom.getStyle("cursor"))
 
         val outerHtml = dom.toOuterHtml()
-        assertTrue(outerHtml.contains("background-color: rgba(17, 34, 51, 1.0) !important"))
+        assertTrue(outerHtml.contains("background-color: rgb(17, 34, 51) !important"))
         assertTrue(outerHtml.contains("4 12, crosshair"))
 
         // Null-clearing a style property removes it from WebDomElement.style and clears !important
@@ -141,18 +143,19 @@ class WebStyleBootstrapAndThemeTest {
         // Default themeMode is ThemeMode.AUTO
         assertEquals(ThemeMode.AUTO, appImpl.getThemeMode())
 
-        SystemThemeDetector.fallbackSystemTheme = ThemeMode.LIGHT
+        SystemThemeDetector.overrideDetectedTheme = ThemeMode.LIGHT
         appImpl.setThemeMode(ThemeMode.AUTO)
         assertEquals("light", appImpl.appliedBootstrapTheme)
 
-        SystemThemeDetector.fallbackSystemTheme = ThemeMode.DARK
+        SystemThemeDetector.overrideDetectedTheme = ThemeMode.DARK
         appImpl.setThemeMode(ThemeMode.AUTO)
         assertEquals("dark", appImpl.appliedBootstrapTheme)
+        SystemThemeDetector.overrideDetectedTheme = null
 
         appImpl.setThemeMode(ThemeMode.LIGHT)
         assertEquals("light", appImpl.appliedBootstrapTheme)
 
-        // Adding a stylesheet with .scss path normalizes to .css and mounts <link rel="stylesheet" href="...">
+        // Adding a stylesheet with .scss path normalizes to .css and mounts <link rel="stylesheet" href="..."> in <head>
         val sheet = object : PrecompiledStyleSheet {
             override val name: String = "studio-theme"
             override val styleSheet: CssStyleSheet = CssStyleSheet.empty()
@@ -162,18 +165,33 @@ class WebStyleBootstrapAndThemeTest {
         appImpl.addStyleSheet(sheet)
 
         assertTrue(WebStyleSheetManager.getActiveStyleSheetHrefs().contains("styles/studio-theme.css"))
-        val linkNode = appImpl.nativeApplication.children.firstOrNull {
-            it.tagName == "link" && it.getAttribute("href") == "styles/studio-theme.css"
-        }
-        assertTrue(linkNode != null, "Expected <link rel=\"stylesheet\" href=\"styles/studio-theme.css\"> in root")
+        assertTrue(appImpl.nativeApplication.children.none { it.tagName == "link" })
+        val linkNode = WebStyleSheetManager.getHeadStyleSheetLink("styles/studio-theme.css")
+        assertTrue(linkNode != null, "Expected <link rel=\"stylesheet\" href=\"styles/studio-theme.css\"> in <head>")
         assertEquals("stylesheet", linkNode.getAttribute("rel"))
 
-        // Removing the stylesheet removes the <link> node
+        // Removing the stylesheet removes the <link> node from <head>
         appImpl.removeStyleSheet(sheet)
         assertFalse(WebStyleSheetManager.getActiveStyleSheetHrefs().contains("styles/studio-theme.css"))
-        val removedLink = appImpl.nativeApplication.children.firstOrNull {
-            it.tagName == "link" && it.getAttribute("href") == "styles/studio-theme.css"
-        }
+        val removedLink = WebStyleSheetManager.getHeadStyleSheetLink("styles/studio-theme.css")
         assertNull(removedLink)
+    }
+
+    @Test
+    fun testWebStyleSheetEngineDisabledAndApplyComputedStyleDoesNotStampInlineStyles() {
+        val factory = WebNativeFactory()
+        assertFalse(factory.isStyleSheetEngineEnabled)
+
+        val btnImpl = factory.createButton() as WebButtonImpl
+        val computed = ComputedStyle(
+            rawDeclarations = mapOf(
+                "background-color" to "rgb(255, 0, 0)",
+                "min-height" to "100%"
+            )
+        )
+        btnImpl.applyComputedStyle(computed)
+
+        assertNull(btnImpl.nativeWidget.getStyle("background-color"))
+        assertNull(btnImpl.nativeWidget.getStyle("min-height"))
     }
 }

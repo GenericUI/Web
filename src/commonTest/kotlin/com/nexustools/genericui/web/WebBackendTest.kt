@@ -1,5 +1,18 @@
 package com.nexustools.genericui.web
 
+import com.nexustools.genericui.component.layout.AspectRatioContainer
+import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.HybridColumnContainer
+import com.nexustools.genericui.component.layout.HybridFoldMode
+import com.nexustools.genericui.component.layout.HybridSplitNavigationContainer
+import com.nexustools.genericui.component.layout.LayeredContainer
+import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.component.tabs.TabContainer
+import com.nexustools.genericui.component.tabs.TabPosition
+import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.enums.bootstrap.BootstrapAspectRatio
+import com.nexustools.genericui.enums.ui.Placement
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.event.KeyShortcut
 import kotlin.test.Test
@@ -15,7 +28,7 @@ class WebBackendTest {
         val factory = WebNativeFactory()
         val app = factory.createApplication() as WebApplicationImpl
 
-        assertEquals("genericui:root", app.nativeApplication.tagName)
+        assertEquals("genericui:app", app.nativeApplication.tagName)
         assertEquals("", app.nativeApplication.id)
         assertFalse(app.nativeApplication.hasAttribute("id"))
         assertFalse(app.nativeApplication.hasAttribute("data-bs-theme"))
@@ -33,32 +46,33 @@ class WebBackendTest {
             jsIrUrl = "studio-js.js"
         )
         assertTrue(html.contains("<html lang=\"en\" xmlns:genericui=\"https://nexustools.com/ns/genericui\" data-bs-theme=\"dark\">"))
-        assertTrue(html.contains("<link id=\"genericui-css\" rel=\"stylesheet\" href=\"genericui.css?${WebNamespaceSpec.defaultGenericUiCssSha1Hash}\">"))
-        assertTrue(html.contains("<genericui:root></genericui:root>"))
+        assertTrue(html.contains("<link id=\"genericui-css\" rel=\"stylesheet\" href=\"gui/genericui.css?${WebNamespaceSpec.defaultGenericUiCssSha1Hash}\">"))
+        assertTrue(html.contains("<genericui:app></genericui:app>"))
         assertFalse(html.contains("<div id=\"genericui-app\""))
 
-        // Verify genericui.css rules for root, scrollviews, scrollfragment, and menuseparator
+        // Verify genericui.css rules for app, scrollviews, fragment.scroll-fragment, and menuseparator
         val css = WebNamespaceSpec.DEFAULT_GENERICUI_CSS
-        assertTrue(css.contains("genericui\\:root"))
+        assertTrue(css.contains("genericui\\:app"))
         assertTrue(css.contains("position: absolute;"))
         assertTrue(css.contains("overflow: hidden;"))
         assertTrue(css.contains("hr.dropdown-divider,\ngenericui\\:menuseparator"))
-        assertTrue(css.contains("genericui\\:scrollfragment"))
-        assertTrue(css.contains("genericui\\:root.scroll-fragment"))
+        assertTrue(css.contains("genericui\\:fragment.scroll-fragment"))
+        assertTrue(css.contains("genericui\\:app.scroll-fragment"))
 
-        // Verify loader JS ensures <genericui:root> without id or data-bs-theme
+        // Verify loader JS ensures <genericui:app> without id or data-bs-theme
         assertTrue(WebWasmJsLoader.DEFAULT_LOADER_JS.contains("ensureRootContainer"))
-        assertTrue(WebWasmJsLoader.DEFAULT_LOADER_JS.contains("getElementsByTagName(\"genericui:root\")"))
+        assertTrue(WebWasmJsLoader.DEFAULT_LOADER_JS.contains("getElementsByTagName(\"genericui:app\")"))
         assertTrue(WebWasmJsLoader.DEFAULT_LOADER_JS.contains("removeAttribute(\"id\")"))
         assertTrue(WebWasmJsLoader.DEFAULT_LOADER_JS.contains("removeAttribute(\"data-bs-theme\")"))
 
         // Verify namespace mappings
-        assertEquals("genericui:root", WebNamespaceSpec.inferTagForClassPrefix("root"))
-        assertEquals("genericui:root", WebNamespaceSpec.inferTagForClassPrefix("genericui:root"))
+        assertEquals("genericui:app", WebNamespaceSpec.inferTagForClassPrefix("app"))
+        assertEquals("genericui:app", WebNamespaceSpec.inferTagForClassPrefix("root"))
+        assertEquals("genericui:app", WebNamespaceSpec.inferTagForClassPrefix("genericui:app"))
         assertEquals("genericui:window", WebNamespaceSpec.inferTagForClassPrefix("window"))
         assertEquals("genericui:fragment", WebNamespaceSpec.inferTagForClassPrefix("fragment"))
         assertEquals("genericui:fragment-container", WebNamespaceSpec.inferTagForClassPrefix("fragment-container"))
-        assertEquals("genericui:scrollfragment", WebNamespaceSpec.inferTagForClassPrefix("scroll-fragment"))
+        assertEquals("genericui:fragment", WebNamespaceSpec.inferTagForClassPrefix("scroll-fragment"))
     }
 
     @Test
@@ -68,16 +82,16 @@ class WebBackendTest {
         val window = factory.createWindow() as WebWindowImpl
 
         assertEquals("genericui:window", window.nativeWidget.tagName)
-        assertTrue(window.nativeWidget.enumClassList.contains("genericui-window"))
+        assertTrue(window.nativeWidget.enumClasses.contains("genericui-window"))
 
         window.showWindow()
         assertTrue(app.nativeApplication.children.contains(window.nativeWidget))
 
         val menuBar = factory.createMenuBar() as WebMenuBarImpl
         assertEquals("genericui:menubar", menuBar.nativeWidget.tagName)
-        assertTrue(menuBar.nativeWidget.enumClassList.contains("navbar"))
-        assertTrue(menuBar.nativeWidget.enumClassList.contains("navbar-expand"))
-        assertTrue(menuBar.nativeWidget.enumClassList.contains("genericui-menubar"))
+        assertTrue(menuBar.nativeWidget.enumClasses.contains("navbar"))
+        assertTrue(menuBar.nativeWidget.enumClasses.contains("navbar-expand"))
+        assertTrue(menuBar.nativeWidget.enumClasses.contains("genericui-menubar"))
         assertEquals("menubar", menuBar.nativeWidget.getAttribute("role"))
 
         val fileMenu = factory.createMenu() as WebMenuImpl
@@ -93,7 +107,7 @@ class WebBackendTest {
 
         val separator = factory.createDivider() as WebDividerImpl
         assertEquals("hr", separator.nativeWidget.tagName)
-        assertTrue(separator.nativeWidget.enumClassList.contains("dropdown-divider"))
+        assertTrue(separator.nativeWidget.enumClasses.contains("dropdown-divider"))
 
         val checkItem = factory.createMenuItem(checkable = true, radio = false) as WebMenuItemImpl
         checkItem.setLabel("Show Grid")
@@ -170,8 +184,8 @@ class WebBackendTest {
 
         val contextMenu = factory.createContextMenu() as WebContextMenuImpl
         assertEquals("genericui:contextmenu", contextMenu.nativeWidget.tagName)
-        assertTrue(contextMenu.nativeWidget.enumClassList.contains("dropdown-menu"))
-        assertTrue(contextMenu.nativeWidget.enumClassList.contains("genericui-context-menu"))
+        assertTrue(contextMenu.nativeWidget.enumClasses.contains("dropdown-menu"))
+        assertTrue(contextMenu.nativeWidget.enumClasses.contains("genericui-context-menu"))
 
         val copyItem = factory.createMenuItem(checkable = false, radio = false) as WebMenuItemImpl
         copyItem.setLabel("Copy")
@@ -313,5 +327,130 @@ class WebBackendTest {
         assertTrue(mainZ > 0)
         assertTrue(panelZ > mainZ, "Expected tool modal panelWindow z-index ($panelZ) > owner mainWindow z-index ($mainZ)")
         assertTrue(dockZ > mainZ, "Expected tool modal dockWindow z-index ($dockZ) > owner mainWindow z-index ($mainZ)")
+    }
+
+    @Test
+    fun testTabPositionTopBottomAndAdaptiveHybridLayouts() {
+        val factory = WebNativeFactory()
+        GenericUI.activeFactory = factory
+        factory.createApplication()
+
+        val window = Window("Tab Test")
+        val tabContainer = TabContainer()
+        tabContainer.addTab("Queue", Container())
+        tabContainer.addTab("Shows", Container())
+        window.addChild(tabContainer)
+        window.show()
+        val webTabs = tabContainer.nativeImpl as WebTabContainerImpl
+
+        assertEquals(TabPosition.TOP, tabContainer.tabPosition)
+        assertEquals(TabPosition.TOP, webTabs.currentTabPosition)
+        assertTrue(webTabs.nativeWidget.classList.contains(TabPosition.TOP.cssClass))
+        assertSame(webTabs.navListElement, webTabs.nativeWidget.children.first())
+        assertSame(webTabs.tabContentElement, webTabs.nativeWidget.children.last())
+
+        tabContainer.tabPosition = TabPosition.BOTTOM
+        assertEquals(TabPosition.BOTTOM, tabContainer.tabPosition)
+        assertEquals(TabPosition.BOTTOM, webTabs.currentTabPosition)
+        assertTrue(webTabs.nativeWidget.classList.contains(TabPosition.BOTTOM.cssClass))
+        assertTrue(webTabs.navListElement.classList.contains("mt-auto"))
+        assertSame(webTabs.tabContentElement, webTabs.nativeWidget.children.first())
+        assertSame(webTabs.navListElement, webTabs.nativeWidget.children.last())
+
+        // Verify HybridColumnContainer places tabs on bottom on portrait small screens and top on medium/large screens
+        val hybridCol = HybridColumnContainer(foldMode = HybridFoldMode.COLLAPSE_ALL_COLUMNS_TO_TABS)
+        hybridCol.addColumn(id = "col-a", title = "Col A", component = Container())
+        hybridCol.addColumn(id = "col-b", title = "Col B", component = Container())
+        hybridCol.addColumn(id = "col-c", title = "Col C", component = Container())
+
+        hybridCol.onResize(390, 844)
+        assertFalse(hybridCol.inColumnMode)
+        assertEquals(TabPosition.BOTTOM, hybridCol.topTabBar.tabPosition)
+
+        hybridCol.onResize(1280, 800)
+        assertTrue(hybridCol.inColumnMode)
+        assertEquals(TabPosition.TOP, hybridCol.topTabBar.tabPosition)
+
+        // Verify HybridSplitNavigationContainer places tabs on bottom on portrait small screens and top on medium/large screens
+        val splitNav = HybridSplitNavigationContainer(inColumnMode = false)
+        splitNav.addSection(id = "queue", title = "Queue", content = Container())
+        splitNav.addSection(id = "shows", title = "Shows", content = Container())
+        assertEquals(TabPosition.BOTTOM, splitNav.topTabLayout.tabPosition)
+
+        splitNav.inColumnMode = true
+        assertEquals(TabPosition.TOP, splitNav.topTabLayout.tabPosition)
+    }
+
+    @Test
+    fun testAspectRatioContainerAndWebBootstrapComponents() {
+        val factory = WebNativeFactory()
+        GenericUI.activeFactory = factory
+        factory.createApplication()
+
+        val ratio16x9 = AspectRatioContainer(BootstrapAspectRatio.RATIO_16X9)
+        assertTrue(ratio16x9.hasClass("ratio"))
+        assertTrue(ratio16x9.hasClass("ratio-16x9"))
+        assertEquals(16f / 9f, ratio16x9.effectiveAspectRatio, 0.001f)
+
+        val overlayLayered = LayeredContainer()
+        val hudLayer = StyledContainer()
+        overlayLayered.addFillLayer(hudLayer, zIndex = 10)
+        ratio16x9.addChild(overlayLayered)
+        overlayLayered.layout.impl.syncLayers()
+        val window = Window("Aspect Ratio Test")
+        window.addChild(ratio16x9)
+        window.show()
+        val overlayDom = (overlayLayered.nativeImpl as WebBaseNativeImpl).nativeWidget
+        assertFalse(overlayDom.enumClasses.contains("position-relative"))
+        assertFalse(overlayDom.classList.contains("position-relative"))
+        assertEquals("absolute", overlayLayered.getStyleProperty("position"))
+        assertEquals("0", overlayLayered.getStyleProperty("top")?.removeSuffix("px"))
+        assertEquals("0", overlayLayered.getStyleProperty("left")?.removeSuffix("px"))
+        assertEquals("100%", overlayLayered.getStyleProperty("width"))
+        assertEquals("100%", overlayLayered.getStyleProperty("height"))
+
+        val customRatio = AspectRatioContainer(widthRatio = 2f, heightRatio = 1f)
+        assertTrue(customRatio.hasClass("ratio"))
+        assertEquals(2f, customRatio.effectiveAspectRatio, 0.001f)
+        assertEquals("50%", customRatio.getStyleProperty("--bs-aspect-ratio"))
+
+        val dialog = factory.createDialogWindow() as WebDialogWindowImpl
+        dialog.setTitle("Settings")
+        assertTrue(dialog.nativeWidget.enumClasses.contains("modal"))
+        assertTrue(dialog.modalDialog.classList.contains("modal-dialog"))
+        assertTrue(dialog.modalContent.classList.contains("modal-content"))
+        assertTrue(dialog.modalHeader.classList.contains("modal-header"))
+        assertTrue(dialog.modalBody.classList.contains("modal-body"))
+
+        val navbar = factory.createNavbar() as WebNavbarImpl
+        navbar.setBrandTitle("Episode Caster")
+        assertTrue(navbar.nativeWidget.enumClasses.contains("navbar"))
+        assertTrue(navbar.containerFluid.classList.contains("container-fluid"))
+        assertTrue(navbar.brandElement.classList.contains("navbar-brand"))
+        assertEquals("Episode Caster", navbar.brandElement.textContent)
+
+        val bottomNav = factory.createBottomNavigationBar() as WebBottomNavigationBarImpl
+        assertTrue(bottomNav.nativeWidget.enumClasses.contains("navbar"))
+        assertTrue(bottomNav.nativeWidget.enumClasses.contains("navbar-bottom"))
+        assertTrue(bottomNav.nativeWidget.children.first().classList.contains("nav-pills"))
+
+        val dropdown = factory.createDropdown() as WebDropdownImpl
+        dropdown.setLabel("Actions")
+        assertTrue(dropdown.nativeWidget.enumClasses.contains("dropdown"))
+        assertTrue(dropdown.toggleButton.classList.contains("dropdown-toggle"))
+        assertTrue(dropdown.menuList.classList.contains("dropdown-menu"))
+
+        val progress = factory.createProgressBar() as WebProgressBarImpl
+        progress.setProgress(0.65f)
+        assertTrue(progress.nativeWidget.enumClasses.contains("progress"))
+        assertTrue(progress.barElement.classList.contains("progress-bar"))
+        assertEquals("65%", progress.barElement.style["width"])
+
+        val popover = factory.createPopover() as WebPopoverImpl
+        popover.setTitle("Details")
+        popover.setPlacement(Placement.TOP)
+        assertTrue(popover.nativeWidget.enumClasses.contains("popover"))
+        assertTrue(popover.nativeWidget.classList.contains("bs-popover-top"))
+        assertEquals("Details", popover.headerElement.textContent)
     }
 }

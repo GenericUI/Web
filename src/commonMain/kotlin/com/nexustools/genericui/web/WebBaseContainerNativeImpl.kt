@@ -14,7 +14,6 @@ open class WebBaseContainerNativeImpl(
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         val childDom = childImpl.nativeWidget as? WebDomElement ?: return
         nativeWidget.insertChildAt(index, childDom)
-        WebWindowImpl.scheduleLayoutRefresh()
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {

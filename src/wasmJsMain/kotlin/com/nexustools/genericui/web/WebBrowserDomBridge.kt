@@ -2,12 +2,67 @@
 
 package com.nexustools.genericui.web
 
+import com.nexustools.genericui.component.dialog.SelectedFile
+import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.res.DataUrlCodec
 
 @JsFun("() => typeof document !== 'undefined' && typeof window !== 'undefined'")
 private external fun wasmIsBrowserEnv(): Boolean
+
+@JsFun("(peer) => { " +
+    "const target = peer || (typeof document !== 'undefined' ? document.documentElement : null); " +
+    "if (target && typeof target.requestFullscreen === 'function') { " +
+    "  try { target.requestFullscreen(); return true; } catch (_e) { return false; } " +
+    "} return false; }")
+private external fun wasmRequestElementFullscreen(peer: JsAny?): Boolean
+
+@JsFun("() => { " +
+    "if (typeof document !== 'undefined' && document.fullscreenElement && typeof document.exitFullscreen === 'function') { " +
+    "  try { document.exitFullscreen(); return true; } catch (_e) { return false; } " +
+    "} return true; }")
+private external fun wasmExitFullscreen(): Boolean
+
+@JsFun("(peer, src, onLoaded, onError) => { " +
+    "try { " +
+    "  peer.style.display = 'none'; " +
+    "  peer.style.position = 'fixed'; " +
+    "  peer.style.width = '0px'; " +
+    "  peer.style.height = '0px'; " +
+    "  peer.style.pointerEvents = 'none'; " +
+    "  peer.setAttribute('aria-hidden', 'true'); " +
+    "  let settled = false; " +
+    "  const finishLoad = () => { " +
+    "    if (settled) return; settled = true; " +
+    "    const w = (peer.naturalWidth && peer.naturalWidth > 0) ? (peer.naturalWidth | 0) : 64; " +
+    "    const h = (peer.naturalHeight && peer.naturalHeight > 0) ? (peer.naturalHeight | 0) : 64; " +
+    "    peer.setAttribute('data-complete', 'true'); " +
+    "    peer.setAttribute('data-natural-width', String(w)); " +
+    "    peer.setAttribute('data-natural-height', String(h)); " +
+    "    onLoaded(w, h); " +
+    "  }; " +
+    "  const finishError = () => { " +
+    "    if (settled) return; settled = true; " +
+    "    peer.setAttribute('data-error', 'true'); " +
+    "    onError('Failed to load HTMLImageElement: ' + src); " +
+    "  }; " +
+    "  peer.addEventListener('load', finishLoad); " +
+    "  peer.addEventListener('error', finishError); " +
+    "  peer.setAttribute('src', src); " +
+    "  if ((peer.complete && peer.naturalWidth && peer.naturalWidth > 0) || src.toLowerCase().indexOf('data:') === 0) { " +
+    "    finishLoad(); " +
+    "  } " +
+    "  return true; " +
+    "} catch (_e) { return false; } " +
+    "}")
+private external fun wasmBindInvisibleImageLoader(
+    peer: JsAny,
+    src: String,
+    onLoaded: (Int, Int) -> Unit,
+    onError: (String) -> Unit
+): Boolean
 
 @JsFun("(tagName) => document.createElement(tagName)")
 private external fun wasmCreateElement(tagName: String): JsAny
@@ -17,8 +72,8 @@ private external fun wasmCreateElement(tagName: String): JsAny
     "const attach = () => { " +
     "  const loader = doc.querySelector('body > .loader'); " +
     "  if (loader && loader.parentNode) loader.parentNode.removeChild(loader); " +
-    "  let el = (doc.getElementsByTagName('genericui:root') && doc.getElementsByTagName('genericui:root').item(0)) || doc.querySelector('genericui\\\\:root'); " +
-    "  if (!el && doc.body) { el = doc.createElement('genericui:root'); doc.body.appendChild(el); } " +
+    "  let el = (doc.getElementsByTagName('genericui:app') && doc.getElementsByTagName('genericui:app').item(0)) || doc.querySelector('genericui\\\\:app'); " +
+    "  if (!el && doc.body) { el = doc.createElement('genericui:app'); doc.body.appendChild(el); } " +
     "  if (el) { " +
     "    if (typeof el.hasAttribute === 'function') { " +
     "      if (el.hasAttribute('id')) el.removeAttribute('id'); " +
@@ -28,14 +83,13 @@ private external fun wasmCreateElement(tagName: String): JsAny
     "      while (oldPeer.firstChild) { el.appendChild(oldPeer.firstChild); } " +
     "    } " +
     "  } " +
-    "  if (window.GenericUiSplash && typeof window.GenericUiSplash.finish === 'function') window.GenericUiSplash.finish(); " +
     "}; " +
     "if (doc.body) attach(); else doc.addEventListener('DOMContentLoaded', attach); " +
-    "return (doc.getElementsByTagName('genericui:root') && doc.getElementsByTagName('genericui:root').item(0)) || doc.querySelector('genericui\\\\:root') || oldPeer || doc.createElement('genericui:root'); " +
+    "return (doc.getElementsByTagName('genericui:app') && doc.getElementsByTagName('genericui:app').item(0)) || doc.querySelector('genericui\\\\:app') || oldPeer || doc.createElement('genericui:app'); " +
     "}")
 private external fun wasmBindRoot(oldPeer: JsAny?): JsAny
 
-@JsFun("(peer, onClick, onDblClick, onMouseEnter, onMouseLeave, onInput, onChange, onCancel, onWheel, onLoad, onError) => { " +
+@JsFun("(peer, onClick, onDblClick, onMouseEnter, onMouseLeave, onInput, onChange, onCancel, onWheel, onLoad, onError, onScroll) => { " +
     "peer.addEventListener('click', () => { onClick(); }); " +
     "peer.addEventListener('dblclick', () => { onDblClick(); }); " +
     "peer.addEventListener('mouseenter', () => { onMouseEnter(); }); " +
@@ -56,6 +110,9 @@ private external fun wasmBindRoot(oldPeer: JsAny?): JsAny
     "}); " +
     "peer.addEventListener('load', () => { onLoad(); }); " +
     "peer.addEventListener('error', () => { onError(); }); " +
+    "peer.addEventListener('scroll', () => { " +
+    "  onScroll(peer.scrollTop || 0, peer.scrollLeft || 0, peer.clientWidth || 0, peer.clientHeight || 0, peer.scrollWidth || 0, peer.scrollHeight || 0); " +
+    "}); " +
     "}")
 private external fun wasmAttachBasicListeners(
     peer: JsAny,
@@ -68,7 +125,8 @@ private external fun wasmAttachBasicListeners(
     onCancel: () -> Unit,
     onWheel: (Float, Float, Float, Float) -> Unit,
     onLoad: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
+    onScroll: (Double, Double, Int, Int, Int, Int) -> Unit
 )
 
 @JsFun("(peer, hasContextMenuListener, onContextMenu, onPointerDown, onPointerMove, onPointerUp, onKeyDown, onKeyUp) => { " +
@@ -115,8 +173,8 @@ private external fun wasmAttachBasicListeners(
     "  const c = typeof ev.code === 'string' ? ev.code : k; " +
     "  cb(k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat); " +
     "}; " +
-    "peer.addEventListener('keydown', (ev) => key(ev, onKeyDown)); " +
-    "peer.addEventListener('keyup', (ev) => key(ev, onKeyUp)); " +
+    "peer.addEventListener('keydown', (ev) => { if (peer.tagName && String(peer.tagName).toLowerCase() === 'genericui:window') ev.__genericUiHandledByWindowPeer = true; key(ev, onKeyDown); }); " +
+    "peer.addEventListener('keyup', (ev) => { if (peer.tagName && String(peer.tagName).toLowerCase() === 'genericui:window') ev.__genericUiHandledByWindowPeer = true; key(ev, onKeyUp); }); " +
     "}")
 private external fun wasmAttachInputListeners(
     peer: JsAny,
@@ -130,9 +188,26 @@ private external fun wasmAttachInputListeners(
 )
 
 @JsFun("(onResize) => { " +
-    "window.addEventListener('resize', () => { " +
-    "  onResize(window.innerWidth || 1280, window.innerHeight || 720); " +
-    "}); " +
+    "const getW = () => { " +
+    "  const iw = window.innerWidth || 0; " +
+    "  const cw = (document.documentElement && document.documentElement.clientWidth) ? document.documentElement.clientWidth : 0; " +
+    "  const vvw = (window.visualViewport && window.visualViewport.width) ? (window.visualViewport.width | 0) : 0; " +
+    "  const arr = [iw, cw, vvw].filter((n) => n > 0); " +
+    "  return arr.length > 0 ? Math.min.apply(null, arr) : 1280; " +
+    "}; " +
+    "const getH = () => { " +
+    "  const ih = window.innerHeight || 0; " +
+    "  const ch = (document.documentElement && document.documentElement.clientHeight) ? document.documentElement.clientHeight : 0; " +
+    "  const vvh = (window.visualViewport && window.visualViewport.height) ? (window.visualViewport.height | 0) : 0; " +
+    "  const arr = [ih, ch, vvh].filter((n) => n > 0); " +
+    "  return arr.length > 0 ? Math.min.apply(null, arr) : 720; " +
+    "}; " +
+    "const notify = () => { onResize(getW(), getH()); }; " +
+    "window.addEventListener('resize', notify); " +
+    "window.addEventListener('orientationchange', notify); " +
+    "if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') { " +
+    "  window.visualViewport.addEventListener('resize', notify); " +
+    "} " +
     "}")
 private external fun wasmRegisterWindowResize(onResize: (Int, Int) -> Unit)
 
@@ -226,7 +301,15 @@ private external fun wasmSetValue(peer: JsAny, value: String)
 @JsFun("(peer, checked) => { peer.checked = checked; }")
 private external fun wasmSetChecked(peer: JsAny, checked: Boolean)
 
-@JsFun("(peer, disabled) => { peer.disabled = disabled; }")
+@JsFun("(peer, disabled) => { " +
+    "peer.disabled = disabled; " +
+    "if (disabled) { " +
+    "  peer.setAttribute('aria-disabled', 'true'); " +
+    "  if (typeof document !== 'undefined' && document.activeElement === peer && typeof peer.blur === 'function') peer.blur(); " +
+    "} else { " +
+    "  peer.removeAttribute('aria-disabled'); " +
+    "} " +
+    "}")
 private external fun wasmSetDisabled(peer: JsAny, disabled: Boolean)
 
 @JsFun("(peer, ro) => { peer.readOnly = ro; }")
@@ -240,6 +323,460 @@ private external fun wasmSetDirectory(peer: JsAny, directory: Boolean)
 
 @JsFun("(peer, accept) => { peer.accept = accept; }")
 private external fun wasmSetAccept(peer: JsAny, accept: String)
+
+@JsFun("(peer, st) => { const cur = peer.scrollTop || 0; if (Math.abs(cur - st) > 1) peer.scrollTop = st; }")
+private external fun wasmSetScrollTop(peer: JsAny, scrollTop: Double)
+
+@JsFun("(peer, sl) => { const cur = peer.scrollLeft || 0; if (Math.abs(cur - sl) > 1) peer.scrollLeft = sl; }")
+private external fun wasmSetScrollLeft(peer: JsAny, scrollLeft: Double)
+
+@JsFun("(modalEl) => { " +
+    "try { " +
+    "  const win = window; const doc = document; " +
+    "  if (!win.__genericUiModalStack) win.__genericUiModalStack = []; " +
+    "  const stack = win.__genericUiModalStack; " +
+    "  if (stack.length === 0) win.__genericUiPreModalFocus = doc.activeElement; " +
+    "  const existingIdx = stack.indexOf(modalEl); " +
+    "  if (existingIdx !== -1) stack.splice(existingIdx, 1); " +
+    "  stack.push(modalEl); " +
+    "  const mainWindows = doc.querySelectorAll('genericui\\\\:window:not([data-tool-modal=\"true\"])'); " +
+    "  for (let i = 0; i < mainWindows.length; i++) { " +
+    "    mainWindows[i].setAttribute('aria-hidden', 'true'); " +
+    "    try { mainWindows[i].inert = true; } catch (_e) {} " +
+    "  } " +
+    "  const queryFocusables = (root) => { " +
+    "    if (!root || typeof root.querySelectorAll !== 'function') return []; " +
+    "    const nodes = root.querySelectorAll('button:not([disabled]), [href], input:not([disabled]):not([type=\"hidden\"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"]):not([disabled])'); " +
+    "    const list = []; " +
+    "    for (let j = 0; j < nodes.length; j++) { " +
+    "      const el = nodes[j]; " +
+    "      if (el.offsetParent !== null || (typeof el.getClientRects === 'function' && el.getClientRects().length > 0)) list.push(el); " +
+    "    } " +
+    "    return list; " +
+    "  }; " +
+    "  if (!win.__genericUiModalTrapInstalled) { " +
+    "    win.__genericUiModalTrapInstalled = true; " +
+    "    doc.addEventListener('keydown', (ev) => { " +
+    "      const st = win.__genericUiModalStack; " +
+    "      if (!st || st.length === 0 || ev.key !== 'Tab') return; " +
+    "      const topModal = st[st.length - 1]; if (!topModal) return; " +
+    "      const focusables = queryFocusables(topModal); " +
+    "      if (focusables.length === 0) { ev.preventDefault(); if (typeof topModal.focus === 'function') topModal.focus(); return; } " +
+    "      const first = focusables[0]; const last = focusables[focusables.length - 1]; const active = doc.activeElement; " +
+    "      if (!topModal.contains(active)) { ev.preventDefault(); (ev.shiftKey ? last : first).focus(); } " +
+    "      else if (!ev.shiftKey && active === last) { ev.preventDefault(); first.focus(); } " +
+    "      else if (ev.shiftKey && (active === first || active === topModal)) { ev.preventDefault(); last.focus(); } " +
+    "    }, true); " +
+    "    doc.addEventListener('focusin', (ev) => { " +
+    "      const st = win.__genericUiModalStack; " +
+    "      if (!st || st.length === 0) return; " +
+    "      const topModal = st[st.length - 1]; " +
+    "      if (!topModal || !ev.target) return; " +
+    "      if (!topModal.contains(ev.target)) { " +
+    "        const focusables = queryFocusables(topModal); " +
+    "        if (focusables.length > 0) focusables[0].focus(); else if (typeof topModal.focus === 'function') topModal.focus(); " +
+    "      } " +
+    "    }, true); " +
+    "  } " +
+    "  setTimeout(() => { " +
+    "    const focusables = queryFocusables(modalEl); " +
+    "    if (focusables.length > 0 && typeof focusables[0].focus === 'function') focusables[0].focus(); " +
+    "    else if (typeof modalEl.focus === 'function') modalEl.focus(); " +
+    "  }, 0); " +
+    "} catch (_e) {} }")
+private external fun wasmInstallModalFocusTrap(modalPeer: JsAny)
+
+@JsFun("(modalEl) => { " +
+    "try { " +
+    "  const win = window; const doc = document; const stack = win.__genericUiModalStack; if (!stack) return; " +
+    "  const idx = stack.indexOf(modalEl); if (idx !== -1) stack.splice(idx, 1); " +
+    "  if (stack.length === 0) { " +
+    "    const mainWindows = doc.querySelectorAll('genericui\\\\:window:not([data-tool-modal=\"true\"])'); " +
+    "    for (let i = 0; i < mainWindows.length; i++) { " +
+    "      mainWindows[i].removeAttribute('aria-hidden'); " +
+    "      try { mainWindows[i].inert = false; } catch (_e) {} " +
+    "    } " +
+    "    const prev = win.__genericUiPreModalFocus; win.__genericUiPreModalFocus = null; " +
+    "    if (prev && typeof prev.focus === 'function') { try { prev.focus(); } catch (_e) {} } " +
+    "  } " +
+    "} catch (_e) {} }")
+private external fun wasmReleaseModalFocusTrap(modalPeer: JsAny)
+
+@JsFun("(scrollEl, viewportEl) => { " +
+    "try { " +
+    "  if (!scrollEl || !viewportEl || scrollEl.__genericUiOverscrollAttached) return; " +
+    "  scrollEl.__genericUiOverscrollAttached = true; " +
+    "  scrollEl.style.overscrollBehavior = 'auto'; " +
+    "  let startX = 0, startY = 0, activeTouch = false, wheelResetTimer = null; " +
+    "  const isHoriz = () => scrollEl.style.overflowX === 'auto' && scrollEl.style.overflowY !== 'auto'; " +
+    "  const calcScale = (delta) => { " +
+    "    const abs = Math.abs(delta); if (abs <= 0.5) return 1.0; " +
+    "    const norm = Math.min(4.0, abs / 220.0); " +
+    "    return 1.0 + Math.min(0.14, (norm / (1.0 + norm)) * 0.14); " +
+    "  }; " +
+    "  const applyStretch = (delta) => { " +
+    "    const h = isHoriz(); const s = calcScale(delta); " +
+    "    if (s <= 1.0005) { " +
+    "      viewportEl.style.transition = 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'; " +
+    "      viewportEl.style.transform = h ? 'scaleX(1)' : 'scaleY(1)'; " +
+    "      scrollEl.setAttribute('data-overscroll-stretch', '1.0'); " +
+    "      scrollEl.removeAttribute('data-overscroll-edge'); " +
+    "      return; " +
+    "    } " +
+    "    viewportEl.style.transformOrigin = h ? (delta > 0 ? '0% 50%' : '100% 50%') : (delta > 0 ? '50% 0%' : '50% 100%'); " +
+    "    viewportEl.style.transition = 'none'; " +
+    "    viewportEl.style.transform = h ? ('scaleX(' + s.toFixed(4) + ')') : ('scaleY(' + s.toFixed(4) + ')'); " +
+    "    scrollEl.setAttribute('data-overscroll-stretch', s.toFixed(4)); " +
+    "    scrollEl.setAttribute('data-overscroll-edge', h ? (delta > 0 ? 'start' : 'end') : (delta > 0 ? 'top' : 'bottom')); " +
+    "  }; " +
+    "  const release = () => { " +
+    "    activeTouch = false; const h = isHoriz(); " +
+    "    viewportEl.style.transition = 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'; " +
+    "    viewportEl.style.transform = h ? 'scaleX(1)' : 'scaleY(1)'; " +
+    "    scrollEl.setAttribute('data-overscroll-stretch', '1.0'); " +
+    "    scrollEl.removeAttribute('data-overscroll-edge'); " +
+    "  }; " +
+    "  scrollEl.addEventListener('touchstart', (ev) => { " +
+    "    if (!ev.touches || ev.touches.length !== 1) return; " +
+    "    activeTouch = true; startX = ev.touches[0].clientX; startY = ev.touches[0].clientY; " +
+    "  }, { passive: true }); " +
+    "  scrollEl.addEventListener('touchmove', (ev) => { " +
+    "    if (!activeTouch || !ev.touches || ev.touches.length !== 1) return; " +
+    "    const h = isHoriz(); const curX = ev.touches[0].clientX; const curY = ev.touches[0].clientY; " +
+    "    const delta = h ? (curX - startX) : (curY - startY); " +
+    "    const pos = h ? scrollEl.scrollLeft : scrollEl.scrollTop; " +
+    "    const client = h ? scrollEl.clientWidth : scrollEl.clientHeight; " +
+    "    const total = h ? scrollEl.scrollWidth : scrollEl.scrollHeight; " +
+    "    const atStart = pos <= 1; const atEnd = (pos + client) >= Math.max(0, total - 2); " +
+    "    if ((atStart && delta > 0) || (atEnd && delta < 0)) { " +
+    "      if (ev.cancelable) ev.preventDefault(); " +
+    "      applyStretch(delta); " +
+    "    } else { " +
+    "      startX = curX; startY = curY; " +
+    "      if (scrollEl.getAttribute('data-overscroll-stretch') !== '1.0') applyStretch(0); " +
+    "    } " +
+    "  }, { passive: false }); " +
+    "  scrollEl.addEventListener('touchend', release, { passive: true }); " +
+    "  scrollEl.addEventListener('touchcancel', release, { passive: true }); " +
+    "} catch (_e) {} }")
+private external fun wasmAttachOverscrollStretch(scrollPeer: JsAny, viewportPeer: JsAny)
+
+@JsFun("(scrollEl, viewportEl, isHorizFn, emitCb) => { " +
+    "try { " +
+    "  if (!scrollEl || !viewportEl) return; " +
+    "  scrollEl.__genericUiLazyEmitCb = emitCb; " +
+    "  scrollEl.__genericUiLazyIsHorizFn = isHorizFn; " +
+    "  if (scrollEl.__genericUiLazyViewportAttached) return; " +
+    "  scrollEl.__genericUiLazyViewportAttached = true; " +
+    "  const win = typeof window !== 'undefined' ? window : null; " +
+    "  const doc = typeof document !== 'undefined' ? document : null; " +
+    "  let lastScrollOffset = -1; " +
+    "  let lastViewportExtent = -1; " +
+    "  let calibratedSpan = false; " +
+    "  const findClippingAncestor = (el, horiz) => { " +
+    "    let cur = el ? el.parentElement : null; " +
+    "    while (cur && cur !== (doc && doc.body) && cur !== (doc && doc.documentElement)) { " +
+    "      const scrolled = horiz ? (cur.scrollLeft || 0) > 0 : (cur.scrollTop || 0) > 0; " +
+    "      if (scrolled) return cur; " +
+    "      if (win && typeof win.getComputedStyle === 'function') { " +
+    "        const cs = win.getComputedStyle(cur); " +
+    "        const ov = cs ? (horiz ? cs.overflowX : cs.overflowY) : ''; " +
+    "        if (ov === 'auto' || ov === 'scroll' || ov === 'overlay' || ov === 'hidden') { " +
+    "          const cSpan = horiz ? (cur.clientWidth || 0) : (cur.clientHeight || 0); " +
+    "          if (cSpan > 0) return cur; " +
+    "        } " +
+    "      } " +
+    "      cur = cur.parentElement; " +
+    "    } " +
+    "    return null; " +
+    "  }; " +
+    "  const sampleAndEmit = (fromScrollEvent) => { " +
+    "    const cb = scrollEl.__genericUiLazyEmitCb; " +
+    "    const hFn = scrollEl.__genericUiLazyIsHorizFn; " +
+    "    if (typeof cb !== 'function') return; " +
+    "    const isHoriz = typeof hFn === 'function' ? !!hFn() : false; " +
+    "    const winW = (win && win.innerWidth) ? win.innerWidth : 1280; " +
+    "    const winH = (win && win.innerHeight) ? win.innerHeight : 720; " +
+    "    const ownScroll = isHoriz ? (scrollEl.scrollLeft || 0) : (scrollEl.scrollTop || 0); " +
+    "    const ownClient = isHoriz ? (scrollEl.clientWidth || 0) : (scrollEl.clientHeight || 0); " +
+    "    const ownTotal = isHoriz ? (scrollEl.scrollWidth || 0) : (scrollEl.scrollHeight || 0); " +
+    "    const winSpan = isHoriz ? winW : winH; " +
+    "    let scrollOffsetPx = 0; " +
+    "    let viewportExtentPx = 600; " +
+    "    const selfScrolling = ownScroll > 0 || (ownClient > 0 && ownTotal > ownClient + 2 && ownClient <= winSpan); " +
+    "    if (selfScrolling) { " +
+    "      scrollOffsetPx = Math.max(0, ownScroll); " +
+    "      viewportExtentPx = Math.max(1, Math.round(ownClient || 600)); " +
+    "    } else { " +
+    "      const clipPeer = findClippingAncestor(scrollEl, isHoriz); " +
+    "      const peerRect = typeof scrollEl.getBoundingClientRect === 'function' ? scrollEl.getBoundingClientRect() : null; " +
+    "      const clipRect = (clipPeer && typeof clipPeer.getBoundingClientRect === 'function') " +
+    "        ? clipPeer.getBoundingClientRect() " +
+    "        : { top: 0, left: 0, bottom: winH, right: winW, height: winH, width: winW }; " +
+    "      if (peerRect) { " +
+    "        if (isHoriz) { " +
+    "          scrollOffsetPx = Math.max(0, (clipRect.left - peerRect.left) + (scrollEl.scrollLeft || 0)); " +
+    "          const cw = Math.round(clipRect.width || winW || 600); " +
+    "          viewportExtentPx = Math.max(1, (ownClient > 0 && ownClient < cw) ? ownClient : cw); " +
+    "        } else { " +
+    "          scrollOffsetPx = Math.max(0, (clipRect.top - peerRect.top) + (scrollEl.scrollTop || 0)); " +
+    "          const ch = Math.round(clipRect.height || winH || 600); " +
+    "          viewportExtentPx = Math.max(1, (ownClient > 0 && ownClient < ch) ? ownClient : ch); " +
+    "        } " +
+    "      } else { " +
+    "        scrollOffsetPx = Math.max(0, ownScroll); " +
+    "        viewportExtentPx = Math.max(1, Math.round(ownClient || winSpan || 600)); " +
+    "      } " +
+    "    } " +
+    "    const measuredViewportSpanPx = Math.max(0, Math.round( " +
+    "      isHoriz " +
+    "        ? (viewportEl.clientWidth || viewportEl.offsetWidth || 0) " +
+    "        : (viewportEl.clientHeight || viewportEl.offsetHeight || 0) " +
+    "    )); " +
+    "    const renderedChildCount = (viewportEl.children && typeof viewportEl.children.length === 'number') " +
+    "      ? (viewportEl.children.length | 0) " +
+    "      : 0; " +
+    "    const scrollChanged = Math.abs(scrollOffsetPx - lastScrollOffset) >= 0.5; " +
+    "    const extentChanged = Math.abs(viewportExtentPx - lastViewportExtent) >= 1; " +
+    "    const needsInitialCalibration = !calibratedSpan && renderedChildCount > 0 && measuredViewportSpanPx > 0; " +
+    "    if (!fromScrollEvent && !scrollChanged && !extentChanged && !needsInitialCalibration) return; " +
+    "    if (renderedChildCount > 0 && measuredViewportSpanPx > 0) calibratedSpan = true; " +
+    "    lastScrollOffset = scrollOffsetPx; " +
+    "    lastViewportExtent = viewportExtentPx; " +
+    "    cb( " +
+    "      scrollOffsetPx, " +
+    "      viewportExtentPx | 0, " +
+    "      measuredViewportSpanPx | 0, " +
+    "      renderedChildCount | 0, " +
+    "      (scrollEl.scrollWidth || 0) | 0, " +
+    "      (scrollEl.scrollHeight || 0) | 0 " +
+    "    ); " +
+    "  }; " +
+    "  const onScrollHandler = (ev) => { " +
+    "    const target = ev ? ev.target : null; " +
+    "    if ( " +
+    "      !target || " +
+    "      target === scrollEl || " +
+    "      target === doc || " +
+    "      target === (doc && doc.documentElement) || " +
+    "      target === (doc && doc.body) || " +
+    "      target === win || " +
+    "      (typeof target.contains === 'function' && target.contains(scrollEl)) " +
+    "    ) { " +
+    "      sampleAndEmit(true); " +
+    "    } " +
+    "  }; " +
+    "  scrollEl.addEventListener('scroll', onScrollHandler, { passive: true }); " +
+    "  scrollEl.addEventListener('wheel', (ev) => { " +
+    "    if (!ev) return; " +
+    "    const hFn = scrollEl.__genericUiLazyIsHorizFn; " +
+    "    const isHoriz = typeof hFn === 'function' ? !!hFn() : false; " +
+    "    const rawDelta = isHoriz ? (ev.deltaX || ev.deltaY || 0) : (ev.deltaY || 0); " +
+    "    if (!rawDelta) return; " +
+    "    let deltaPx = rawDelta; " +
+    "    if (ev.deltaMode === 1) deltaPx = rawDelta * 40; " +
+    "    else if (ev.deltaMode === 2) deltaPx = rawDelta * ((isHoriz ? scrollEl.clientWidth : scrollEl.clientHeight) || 400); " +
+    "    const ownClient = isHoriz ? (scrollEl.clientWidth || 0) : (scrollEl.clientHeight || 0); " +
+    "    const ownTotal = isHoriz ? (scrollEl.scrollWidth || 0) : (scrollEl.scrollHeight || 0); " +
+    "    if (ownClient > 0 && ownTotal > ownClient + 2) { " +
+    "      const prevOwn = isHoriz ? (scrollEl.scrollLeft || 0) : (scrollEl.scrollTop || 0); " +
+    "      if (win && typeof win.requestAnimationFrame === 'function') { " +
+    "        win.requestAnimationFrame(() => { " +
+    "          const afterOwn = isHoriz ? (scrollEl.scrollLeft || 0) : (scrollEl.scrollTop || 0); " +
+    "          if (Math.abs(afterOwn - prevOwn) < 0.5) { " +
+    "            if (isHoriz) scrollEl.scrollLeft = Math.max(0, Math.min(ownTotal - ownClient, prevOwn + deltaPx)); " +
+    "            else scrollEl.scrollTop = Math.max(0, Math.min(ownTotal - ownClient, prevOwn + deltaPx)); " +
+    "          } " +
+    "          sampleAndEmit(true); " +
+    "        }); " +
+    "      } else { sampleAndEmit(true); } " +
+    "    } else { " +
+    "      const clipPeer = findClippingAncestor(scrollEl, isHoriz); " +
+    "      if (clipPeer) { " +
+    "        const peerClient = isHoriz ? (clipPeer.clientWidth || 0) : (clipPeer.clientHeight || 0); " +
+    "        const peerTotal = isHoriz ? (clipPeer.scrollWidth || 0) : (clipPeer.scrollHeight || 0); " +
+    "        if (peerClient > 0 && peerTotal > peerClient + 2) { " +
+    "          const prevPeer = isHoriz ? (clipPeer.scrollLeft || 0) : (clipPeer.scrollTop || 0); " +
+    "          if (win && typeof win.requestAnimationFrame === 'function') { " +
+    "            win.requestAnimationFrame(() => { " +
+    "              const afterPeer = isHoriz ? (clipPeer.scrollLeft || 0) : (clipPeer.scrollTop || 0); " +
+    "              if (Math.abs(afterPeer - prevPeer) < 0.5) { " +
+    "                if (isHoriz) clipPeer.scrollLeft = Math.max(0, Math.min(peerTotal - peerClient, prevPeer + deltaPx)); " +
+    "                else clipPeer.scrollTop = Math.max(0, Math.min(peerTotal - peerClient, prevPeer + deltaPx)); " +
+    "              } " +
+    "              sampleAndEmit(true); " +
+    "            }); " +
+    "          } else { sampleAndEmit(true); } " +
+    "        } " +
+    "      } " +
+    "    } " +
+    "  }, { passive: true }); " +
+    "  if (win) { " +
+    "    win.addEventListener('scroll', onScrollHandler, { capture: true, passive: true }); " +
+    "    win.addEventListener('resize', () => { sampleAndEmit(false); }, { passive: true }); " +
+    "  } " +
+    "  if (typeof ResizeObserver !== 'undefined') { " +
+    "    try { " +
+    "      const ro = new ResizeObserver(() => { sampleAndEmit(false); }); " +
+    "      ro.observe(scrollEl); " +
+    "      ro.observe(viewportEl); " +
+    "    } catch (_e) {} " +
+    "  } " +
+    "} catch (_e) {} }")
+private external fun wasmAttachLazyViewportObserver(
+    scrollPeer: JsAny,
+    viewportPeer: JsAny,
+    isHorizFn: () -> Boolean,
+    emitCb: (Double, Int, Int, Int, Int, Int) -> Unit
+)
+
+@JsFun("(containerEl, rangeEl, startCb, moveCb, endCb) => { " +
+    "try { " +
+    "  if (!containerEl || containerEl.__genericUiSeekBarScrubAttached) return; " +
+    "  containerEl.__genericUiSeekBarScrubAttached = true; " +
+    "  containerEl.style.touchAction = 'none'; " +
+    "  if (rangeEl && rangeEl.style) rangeEl.style.pointerEvents = 'none'; " +
+    "  const win = typeof window !== 'undefined' ? window : null; " +
+    "  let scrubbing = false; let activePointerId = null; let lastFraction = 0.0; let lastClientX = null; " +
+    "  const calcFraction = (ev) => { " +
+    "    const trackEl = (typeof containerEl.querySelector === 'function' ? containerEl.querySelector('.genericui-seekbar-track') : null) || containerEl; " +
+    "    const rect = typeof trackEl.getBoundingClientRect === 'function' ? trackEl.getBoundingClientRect() : null; " +
+    "    const w = (rect && rect.width > 0) ? rect.width : (trackEl.clientWidth || containerEl.clientWidth || 100); " +
+    "    const left = rect ? rect.left : 0; " +
+    "    const clientX = (ev && typeof ev.clientX === 'number') ? ev.clientX : null; " +
+    "    if (clientX === null) return lastFraction; " +
+    "    lastFraction = Math.max(0.0, Math.min(1.0, (clientX - left) / w)); " +
+    "    return lastFraction; " +
+    "  }; " +
+    "  const handleMove = (ev) => { " +
+    "    if (!scrubbing) return; " +
+    "    if (activePointerId !== null && ev && ev.pointerId !== undefined && ev.pointerId !== activePointerId) return; " +
+    "    if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); " +
+    "    if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); " +
+    "    if (ev && typeof ev.clientX === 'number') { " +
+    "      if (lastClientX === null || Math.abs(ev.clientX - lastClientX) > 0.5) { " +
+    "        lastClientX = ev.clientX; " +
+    "        lastFraction = calcFraction(ev); " +
+    "      } " +
+    "    } " +
+    "    moveCb(lastFraction); " +
+    "  }; " +
+    "  const finishScrub = (ev) => { " +
+    "    if (!scrubbing) return; " +
+    "    if (activePointerId !== null && ev && ev.pointerId !== undefined && ev.pointerId !== activePointerId) return; " +
+    "    scrubbing = false; const pid = activePointerId; activePointerId = null; " +
+    "    if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); " +
+    "    try { if (typeof containerEl.releasePointerCapture === 'function' && pid !== null && pid !== undefined) containerEl.releasePointerCapture(pid); } catch (_e) {} " +
+    "    if (ev && typeof ev.clientX === 'number' && lastClientX !== null && Math.abs(ev.clientX - lastClientX) > 0.5) { " +
+    "      lastClientX = ev.clientX; " +
+    "      lastFraction = calcFraction(ev); " +
+    "    } " +
+    "    lastClientX = null; " +
+    "    endCb(lastFraction); " +
+    "  }; " +
+    "  containerEl.addEventListener('pointerdown', (ev) => { " +
+    "    if (ev.button !== undefined && ev.button !== 0) return; " +
+    "    scrubbing = true; activePointerId = ev.pointerId !== undefined ? ev.pointerId : null; " +
+    "    lastClientX = (ev && typeof ev.clientX === 'number') ? ev.clientX : null; " +
+    "    lastFraction = calcFraction(ev); " +
+    "    if (typeof ev.preventDefault === 'function') ev.preventDefault(); " +
+    "    if (typeof ev.stopPropagation === 'function') ev.stopPropagation(); " +
+    "    try { if (typeof containerEl.setPointerCapture === 'function' && ev.pointerId !== undefined) containerEl.setPointerCapture(ev.pointerId); } catch (_e) {} " +
+    "    startCb(lastFraction); " +
+    "  }); " +
+    "  containerEl.addEventListener('pointermove', handleMove); " +
+    "  containerEl.addEventListener('pointerup', finishScrub); " +
+    "  containerEl.addEventListener('pointercancel', finishScrub); " +
+    "  if (win) { " +
+    "    win.addEventListener('pointermove', handleMove, true); " +
+    "    win.addEventListener('mousemove', handleMove, true); " +
+    "    win.addEventListener('pointerup', finishScrub, true); " +
+    "    win.addEventListener('mouseup', finishScrub, true); " +
+    "    win.addEventListener('pointercancel', finishScrub, true); " +
+    "    win.addEventListener('blur', finishScrub); " +
+    "  } " +
+    "} catch (_e) {} }")
+private external fun wasmAttachSeekBarScrubbing(
+    containerPeer: JsAny,
+    rangePeer: JsAny?,
+    onScrubStart: (Double) -> Unit,
+    onScrubMove: (Double) -> Unit,
+    onScrubEnd: (Double) -> Unit
+)
+
+@JsFun("(onMove, onUp) => { " +
+    "try { " +
+    "  const win = typeof window !== 'undefined' ? window : null; " +
+    "  if (!win || win.__genericUiGlobalPointerDragInstalled) return; " +
+    "  win.__genericUiGlobalPointerDragInstalled = true; " +
+    "  const ptr = (ev, cb) => { cb(ev.clientX || 0, ev.clientY || 0, typeof ev.button === 'number' ? ev.button : 0, ev.buttons || 0, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey); }; " +
+    "  const moveHandler = (ev) => ptr(ev, onMove); " +
+    "  const upHandler = (ev) => ptr(ev, onUp); " +
+    "  win.addEventListener('pointermove', moveHandler, true); " +
+    "  win.addEventListener('mousemove', moveHandler, true); " +
+    "  win.addEventListener('pointerup', upHandler, true); " +
+    "  win.addEventListener('mouseup', upHandler, true); " +
+    "  win.addEventListener('pointercancel', upHandler, true); " +
+    "} catch (_e) {} }")
+private external fun wasmEnsureGlobalWindowPointerDragBridge(
+    onMove: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
+    onUp: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit
+)
+
+@JsFun("(onKeyDown, onKeyUp) => { " +
+    "try { " +
+    "  const win = typeof window !== 'undefined' ? window : null; if (!win) return; " +
+    "  win.__genericUiWindowKeyDownCb = onKeyDown; " +
+    "  win.__genericUiWindowKeyUpCb = onKeyUp; " +
+    "  if (win.__genericUiWindowKeysInstalled) return; " +
+    "  win.__genericUiWindowKeysInstalled = true; " +
+    "  const isEditableTarget = (el) => { " +
+    "    if (!el || !el.tagName) return false; " +
+    "    if (el.isContentEditable) return true; " +
+    "    const tag = String(el.tagName).toLowerCase(); " +
+    "    if (tag === 'textarea' || tag === 'select') return true; " +
+    "    if (tag === 'input') { " +
+    "      const t = String(el.getAttribute('type') || el.type || 'text').toLowerCase(); " +
+    "      return t !== 'range' && t !== 'button' && t !== 'checkbox' && t !== 'radio'; " +
+    "    } " +
+    "    return false; " +
+    "  }; " +
+    "  const isModalActive = () => { " +
+    "    if (win.__genericUiModalStack && win.__genericUiModalStack.length > 0) return true; " +
+    "    if (typeof document !== 'undefined') { " +
+    "      const openModal = document.querySelector('genericui\\\\:window[data-tool-modal=\"true\"]:not(.d-none)'); " +
+    "      if (openModal && openModal.style && openModal.style.display !== 'none') return true; " +
+    "    } " +
+    "    return false; " +
+    "  }; " +
+    "  const isMediaPlayerKey = (ev) => { " +
+    "    if (ev.ctrlKey || ev.altKey || ev.metaKey) return false; " +
+    "    const k = String(ev.key || ''); const c = String(ev.code || ''); " +
+    "    return k === ' ' || c === 'Space' || k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'; " +
+    "  }; " +
+    "  const emit = (ev, cb) => { " +
+    "    if (typeof cb !== 'function') return; " +
+    "    const k = typeof ev.key === 'string' ? ev.key : ''; " +
+    "    const c = typeof ev.code === 'string' ? ev.code : k; " +
+    "    cb(k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat); " +
+    "  }; " +
+    "  win.addEventListener('keydown', (ev) => { " +
+    "    if (isModalActive() || isEditableTarget(ev.target)) return; " +
+    "    if (isMediaPlayerKey(ev) && typeof ev.preventDefault === 'function') ev.preventDefault(); " +
+    "  }, true); " +
+    "  win.addEventListener('keydown', (ev) => { " +
+    "    if (ev.__genericUiHandledByWindowPeer || isModalActive() || isEditableTarget(ev.target)) return; " +
+    "    emit(ev, win.__genericUiWindowKeyDownCb); " +
+    "  }, false); " +
+    "  win.addEventListener('keyup', (ev) => { " +
+    "    if (ev.__genericUiHandledByWindowPeer || isModalActive() || isEditableTarget(ev.target)) return; " +
+    "    emit(ev, win.__genericUiWindowKeyUpCb); " +
+    "  }, false); " +
+    "} catch (_e) {} }")
+private external fun wasmRegisterWindowKeyEvents(
+    onKeyDown: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
+    onKeyUp: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit
+)
 
 @JsFun("(parent, child) => { " +
     "const target = (parent.tagName && parent.tagName.toLowerCase() === 'iframe') ? ((parent.contentDocument || (parent.contentWindow && parent.contentWindow.document)) && (parent.contentDocument || parent.contentWindow.document).body) : parent; " +
@@ -281,31 +818,58 @@ private external fun wasmGetOffsetLeft(peer: JsAny, fallback: Int): Int
 @JsFun("(peer, fallback) => { return typeof peer.offsetTop === 'number' ? (peer.offsetTop | 0) : fallback; }")
 private external fun wasmGetOffsetTop(peer: JsAny, fallback: Int): Int
 
-@JsFun("(fallback) => { const w = window.innerWidth || 0; return w > 0 ? w : fallback; }")
+@JsFun("(fallback) => { " +
+    "const iw = window.innerWidth || 0; " +
+    "const cw = (document.documentElement && document.documentElement.clientWidth) ? document.documentElement.clientWidth : 0; " +
+    "const vvw = (window.visualViewport && window.visualViewport.width) ? (window.visualViewport.width | 0) : 0; " +
+    "const arr = [iw, cw, vvw].filter((n) => n > 0); " +
+    "return arr.length > 0 ? Math.min.apply(null, arr) : fallback; }")
 private external fun wasmGetViewportWidth(fallback: Int): Int
 
-@JsFun("(fallback) => { const h = window.innerHeight || 0; return h > 0 ? h : fallback; }")
+@JsFun("(fallback) => { " +
+    "const ih = window.innerHeight || 0; " +
+    "const ch = (document.documentElement && document.documentElement.clientHeight) ? document.documentElement.clientHeight : 0; " +
+    "const vvh = (window.visualViewport && window.visualViewport.height) ? (window.visualViewport.height | 0) : 0; " +
+    "const arr = [ih, ch, vvh].filter((n) => n > 0); " +
+    "return arr.length > 0 ? Math.min.apply(null, arr) : fallback; }")
 private external fun wasmGetViewportHeight(fallback: Int): Int
 
 @JsFun("(title) => { document.title = title; }")
 private external fun wasmSetDocumentTitle(title: String)
 
-@JsFun("(theme) => { if (document.documentElement) document.documentElement.setAttribute('data-bs-theme', theme); }")
+@JsFun("(theme) => { const setTheme = (t) => { document.documentElement.setAttribute('data-bs-theme', t); }; if (document.documentElement) setTheme(theme); }")
 private external fun wasmSetDocumentTheme(theme: String)
 
-@JsFun("(theme) => { if (document.documentElement) document.documentElement.setAttribute('data-bs-theme', theme); if (document.body) document.body.setAttribute('data-bs-theme', theme); }")
+@JsFun("(theme) => { const setTheme = (t) => { document.documentElement.setAttribute('data-bs-theme', t); }; if (document.documentElement) setTheme(theme); }")
 private external fun wasmSyncBootstrapTheme(theme: String)
 
-@JsFun("(id, href) => { const head = document.head; if (!head) return; let link = document.getElementById(id); if (!link) { link = document.createElement('link'); link.id = id; link.setAttribute('rel', 'stylesheet'); link.setAttribute('href', href); head.appendChild(link); } else { link.setAttribute('href', href); } }")
+@JsFun("(id, href) => { " +
+    "const head = document.head; if (!head) return; " +
+    "const norm = (u) => { const s = String(u || '').split('?')[0].split('#')[0]; const idx = s.lastIndexOf('/'); return idx >= 0 ? s.substring(idx + 1) : s; }; " +
+    "let link = document.getElementById(id); " +
+    "if (!link) { " +
+    "  const targetBase = norm(href); " +
+    "  const links = head.querySelectorAll(\"link[rel='stylesheet']\"); " +
+    "  for (let i = 0; i < links.length; i++) { " +
+    "    const c = links.item(i); const ch = c.getAttribute('href') || ''; " +
+    "    if (ch === href || (targetBase && norm(ch) === targetBase)) { link = c; if (!link.id) link.id = id; break; } " +
+    "  } " +
+    "} " +
+    "if (!link) { link = document.createElement('link'); link.id = id; link.setAttribute('rel', 'stylesheet'); link.setAttribute('href', href); head.appendChild(link); } " +
+    "else { const eh = link.getAttribute('href') || ''; if (!eh || norm(eh) !== norm(href) || (href.indexOf('?') !== -1 && eh.indexOf('?') === -1)) link.setAttribute('href', href); } " +
+    "}")
 private external fun wasmAddStyleSheetLink(id: String, href: String)
 
-@JsFun("(id) => { const link = document.getElementById(id); if (link && link.parentNode) link.parentNode.removeChild(link); }")
+@JsFun("(id) => { " +
+    "const link = document.getElementById(id); if (link && link.parentNode) link.parentNode.removeChild(link); " +
+    "if (id === 'genericui-bootstrap-css') { const jsEl = document.getElementById('genericui-bootstrap-js'); if (jsEl && jsEl.parentNode) jsEl.parentNode.removeChild(jsEl); } " +
+    "}")
 private external fun wasmRemoveStyleSheetLink(id: String)
 
-@JsFun("() => { if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true; const mql = window.matchMedia('(prefers-color-scheme: dark)'); return mql ? !!mql.matches : true; }")
+@JsFun("() => { if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true; const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches; return !!isDarkMode; }")
 private external fun wasmQueryDarkMode(): Boolean
 
-@JsFun("(cb) => { if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return; const mql = window.matchMedia('(prefers-color-scheme: dark)'); if (mql && typeof mql.addEventListener === 'function') { mql.addEventListener('change', (ev) => { cb(ev ? !!ev.matches : true); }); } }")
+@JsFun("(cb) => { if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return; const mql = window.matchMedia('(prefers-color-scheme: dark)'); if (mql && typeof mql.addEventListener === 'function') { mql.addEventListener('change', (ev) => { const isDarkMode = ev ? !!ev.matches : window.matchMedia('(prefers-color-scheme: dark)').matches; cb(isDarkMode); }); } }")
 private external fun wasmObserveDarkMode(cb: (Boolean) -> Unit)
 
 @JsFun("(peer) => { if (typeof peer.click === 'function') { peer.click(); return true; } return false; }")
@@ -349,7 +913,7 @@ private external fun wasmGetLocationHash(): String
 @JsFun("(hash) => { try { if (typeof window !== 'undefined' && window.location) { window.location.hash = hash ? ('#' + hash) : ''; } } catch (e) {} }")
 private external fun wasmSetLocationHash(hash: String)
 
-@JsFun("(routeHash, historyIndex, title, stateJson, hasStateJson) => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.pushState === 'function') { const st = { genericUiRoute: routeHash, genericUiIndex: historyIndex, genericUiStateJson: hasStateJson ? stateJson : null }; const url = routeHash ? ('#' + routeHash) : '#'; window.history.pushState(st, title, url); if (title && typeof document !== 'undefined') document.title = title; } } catch (e) {} }")
+@JsFun("(routeHash, historyIndex, title, stateJson, hasStateJson) => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.pushState === 'function') { const st = { genericUiRoute: routeHash, genericUiIndex: historyIndex, genericUiStateJson: hasStateJson ? stateJson : null }; const url = routeHash ? ('#' + routeHash) : '#'; window.history.pushState(st, title, url); } } catch (e) {} }")
 private external fun wasmHistoryPushState(
     routeHash: String,
     historyIndex: Int,
@@ -358,7 +922,7 @@ private external fun wasmHistoryPushState(
     hasStateJson: Boolean
 )
 
-@JsFun("(routeHash, historyIndex, title, stateJson, hasStateJson) => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') { const st = { genericUiRoute: routeHash, genericUiIndex: historyIndex, genericUiStateJson: hasStateJson ? stateJson : null }; const url = routeHash ? ('#' + routeHash) : '#'; window.history.replaceState(st, title, url); if (title && typeof document !== 'undefined') document.title = title; } } catch (e) {} }")
+@JsFun("(routeHash, historyIndex, title, stateJson, hasStateJson) => { try { if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') { const st = { genericUiRoute: routeHash, genericUiIndex: historyIndex, genericUiStateJson: hasStateJson ? stateJson : null }; const url = routeHash ? ('#' + routeHash) : '#'; window.history.replaceState(st, title, url); } } catch (e) {} }")
 private external fun wasmHistoryReplaceState(
     routeHash: String,
     historyIndex: Int,
@@ -386,6 +950,226 @@ private external fun wasmGetCurrentHistoryStateJson(): String?
 private external fun wasmRegisterPopStateListener(
     cb: (String, Boolean, Int, Boolean, String) -> Unit
 )
+
+@JsFun("(key) => { try { const g = typeof window !== 'undefined' ? window : globalThis; const s = g && g.__GENERICUI_PRELOADED_RESOURCES__; const e = s && s[key]; return (e && typeof e.dataUrl === 'string') ? e.dataUrl : null; } catch (err) { return null; } }")
+private external fun wasmGetPreloadedDataUrl(key: String): String?
+
+@JsFun("(key) => { try { const g = typeof window !== 'undefined' ? window : globalThis; const s = g && g.__GENERICUI_PRELOADED_RESOURCES__; const e = s && s[key]; return (e && typeof e.text === 'string') ? e.text : null; } catch (err) { return null; } }")
+private external fun wasmGetPreloadedText(key: String): String?
+
+@JsFun("(key) => { try { const g = typeof window !== 'undefined' ? window : globalThis; const s = g && g.__GENERICUI_PRELOADED_RESOURCES__; return !!(s && s[key]); } catch (err) { return false; } }")
+private external fun wasmHasPreloadedResource(key: String): Boolean
+
+@JsFun("(key, mimeType, dataUrl, text, hasText) => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (!g.__GENERICUI_PRELOADED_RESOURCES__) g.__GENERICUI_PRELOADED_RESOURCES__ = {}; g.__GENERICUI_PRELOADED_RESOURCES__[key] = { id: key, path: key, name: key, mimeType: mimeType, dataUrl: dataUrl, text: hasText ? text : null }; } catch (err) {} }")
+private external fun wasmSetPreloadedResource(
+    key: String,
+    mimeType: String,
+    dataUrl: String,
+    text: String,
+    hasText: Boolean
+)
+
+@JsFun("() => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (g) g.__GENERICUI_PRELOADED_RESOURCES__ = {}; } catch (err) {} }")
+private external fun wasmClearPreloadedResources()
+
+@JsFun("(peer, onPlay, onPlaying, onPause, onEnded, onWaiting, onCanPlay, onTimeUpdate, onDurationChange, onLoadedMetadata, onBufferedSync, onProgress, onError) => { " +
+    "try { " +
+    "  if (peer.__genericUiMediaAttached) return; " +
+    "  peer.__genericUiMediaAttached = true; " +
+    "  const syncBuffered = (fireProgress) => { " +
+    "    try { " +
+    "      const b = peer.buffered; " +
+    "      if (b && b.length > 0) { " +
+    "        const parts = []; " +
+    "        let maxEnd = 0; " +
+    "        for (let i = 0; i < b.length; i++) { " +
+    "          const s = Math.max(0, b.start(i) || 0); " +
+    "          const e = Math.max(s, b.end(i) || 0); " +
+    "          if (!isNaN(s) && !isNaN(e) && e > s) { " +
+    "            parts.push(s + '-' + e); " +
+    "            if (e > maxEnd) maxEnd = e; " +
+    "          } " +
+    "        } " +
+    "        if (parts.length > 0) { " +
+    "          onBufferedSync(parts.join(','), maxEnd); " +
+    "        } " +
+    "        if (fireProgress && typeof maxEnd === 'number' && !isNaN(maxEnd) && maxEnd >= 0) { " +
+    "          onProgress(maxEnd); " +
+    "        } " +
+    "      } " +
+    "    } catch (_e) {} " +
+    "  }; " +
+    "  peer.addEventListener('play', () => { onPlay(); }); " +
+    "  peer.addEventListener('playing', () => { onPlaying(); }); " +
+    "  peer.addEventListener('pause', () => { onPause(); }); " +
+    "  peer.addEventListener('ended', () => { onEnded(); }); " +
+    "  peer.addEventListener('waiting', () => { onWaiting(); }); " +
+    "  peer.addEventListener('canplay', () => { syncBuffered(false); onCanPlay(); }); " +
+    "  peer.addEventListener('timeupdate', () => { " +
+    "    syncBuffered(false); " +
+    "    const ct = typeof peer.currentTime === 'number' && !isNaN(peer.currentTime) ? peer.currentTime : 0; " +
+    "    if (ct >= 0) onTimeUpdate(ct); " +
+    "  }); " +
+    "  const syncDur = () => { " +
+    "    const d = typeof peer.duration === 'number' && isFinite(peer.duration) ? peer.duration : 0; " +
+    "    if (d > 0) onDurationChange(d); " +
+    "  }; " +
+    "  peer.addEventListener('durationchange', syncDur); " +
+    "  peer.addEventListener('loadedmetadata', () => { syncDur(); syncBuffered(false); onLoadedMetadata(); }); " +
+    "  peer.addEventListener('progress', () => { syncBuffered(true); }); " +
+    "  peer.addEventListener('error', () => { " +
+    "    const errObj = peer.error; " +
+    "    const msg = (errObj && errObj.message) ? String(errObj.message) : (errObj && errObj.code ? ('MediaError code ' + errObj.code) : 'Media playback error'); " +
+    "    onError(msg); " +
+    "  }); " +
+    "} catch (_e) {} }")
+private external fun wasmAttachMediaListeners(
+    peer: JsAny,
+    onPlay: () -> Unit,
+    onPlaying: () -> Unit,
+    onPause: () -> Unit,
+    onEnded: () -> Unit,
+    onWaiting: () -> Unit,
+    onCanPlay: () -> Unit,
+    onTimeUpdate: (Double) -> Unit,
+    onDurationChange: (Double) -> Unit,
+    onLoadedMetadata: () -> Unit,
+    onBufferedSync: (String, Double) -> Unit,
+    onProgress: (Double) -> Unit,
+    onError: (String) -> Unit
+)
+
+@JsFun("(peer, mimeType) => { " +
+    "try { " +
+    "  const el = (peer && typeof peer.canPlayType === 'function') ? peer : (typeof document !== 'undefined' ? document.createElement('video') : null); " +
+    "  if (!el || typeof el.canPlayType !== 'function') return false; " +
+    "  const res = String(el.canPlayType(mimeType) || '').trim().toLowerCase(); " +
+    "  return res === 'probably' || res === 'maybe'; " +
+    "} catch (_e) { return false; } }")
+private external fun wasmMediaCanPlayType(peer: JsAny?, mimeType: String): Boolean
+
+@JsFun("(peer, seekOffsetSeconds) => { " +
+    "try { " +
+    "  if (typeof peer.load === 'function') peer.load(); " +
+    "  if (seekOffsetSeconds > 0) { " +
+    "    const applySeek = () => { try { peer.currentTime = seekOffsetSeconds; } catch (_e) {} }; " +
+    "    if ((peer.readyState || 0) >= 1) applySeek(); " +
+    "    else { " +
+    "      let applied = false; " +
+    "      const listener = () => { if (!applied) { applied = true; peer.removeEventListener('loadedmetadata', listener); applySeek(); } }; " +
+    "      peer.addEventListener('loadedmetadata', listener); " +
+    "    } " +
+    "  } " +
+    "  return true; " +
+    "} catch (_e) { return false; } }")
+private external fun wasmMediaLoad(peer: JsAny, seekOffsetSeconds: Double): Boolean
+
+@JsFun("(peer, onRejected) => { " +
+    "try { " +
+    "  if (typeof peer.play !== 'function') return false; " +
+    "  const p = peer.play(); " +
+    "  if (p && typeof p.catch === 'function') { " +
+    "    p.catch((err) => { " +
+    "      const errName = (err && err.name) ? String(err.name) : ''; " +
+    "      const msg = (err && err.message) ? String(err.message) : String(err || 'Playback blocked'); " +
+    "      const low = msg.toLowerCase(); " +
+    "      if (errName === 'AbortError' || low.indexOf('aborterror') !== -1 || low.indexOf('interrupted by a call to pause') !== -1 || low.indexOf('interrupted by a new load request') !== -1) return; " +
+    "      onRejected(msg); " +
+    "    }); " +
+    "  } " +
+    "  return true; " +
+    "} catch (e) { onRejected((e && e.message) ? String(e.message) : String(e || 'Playback failed')); return false; } }")
+private external fun wasmMediaPlay(peer: JsAny, onRejected: (String) -> Unit): Boolean
+
+@JsFun("(peer) => { try { if (typeof peer.pause === 'function') { peer.pause(); return true; } } catch (_e) {} return false; }")
+private external fun wasmMediaPause(peer: JsAny): Boolean
+
+@JsFun("(peer, seconds) => { " +
+    "try { " +
+    "  const s = seconds < 0 ? 0 : seconds; " +
+    "  if ((peer.readyState || 0) >= 1) { peer.currentTime = s; } " +
+    "  else { " +
+    "    let applied = false; " +
+    "    const listener = () => { if (!applied) { applied = true; peer.removeEventListener('loadedmetadata', listener); try { peer.currentTime = s; } catch (_e) {} } }; " +
+    "    peer.addEventListener('loadedmetadata', listener); " +
+    "  } " +
+    "  return true; " +
+    "} catch (_e) { return false; } }")
+private external fun wasmMediaSeekTo(peer: JsAny, seconds: Double): Boolean
+
+@JsFun("(peer, volume) => { try { peer.volume = Math.max(0, Math.min(1, volume)); return true; } catch (_e) { return false; } }")
+private external fun wasmMediaSetVolume(peer: JsAny, volume: Float): Boolean
+
+@JsFun("(peer, muted) => { try { peer.muted = !!muted; return true; } catch (_e) { return false; } }")
+private external fun wasmMediaSetMuted(peer: JsAny, muted: Boolean): Boolean
+
+@JsFun("(peer, rate) => { try { peer.playbackRate = Math.max(0.25, Math.min(4, rate)); return true; } catch (_e) { return false; } }")
+private external fun wasmMediaSetPlaybackRate(peer: JsAny, rate: Float): Boolean
+
+@JsFun("(text, typeSuffix) => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (g && g.GenericUiSplash) { if (typeof g.GenericUiSplash.setStatus === 'function') g.GenericUiSplash.setStatus(text, typeSuffix); else if (typeof g.GenericUiSplash.setApplicationStatus === 'function') g.GenericUiSplash.setApplicationStatus(text, typeSuffix); } } catch (_e) {} }")
+private external fun wasmSetSplashStatus(text: String, typeSuffix: String)
+
+@JsFun("(pct, typeSuffix) => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (g && g.GenericUiSplash && typeof g.GenericUiSplash.setProgress === 'function') g.GenericUiSplash.setProgress(pct, typeSuffix); } catch (_e) {} }")
+private external fun wasmSetSplashProgress(pct: Int, typeSuffix: String)
+
+@JsFun("(msg, stack, title) => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (g && g.GenericUiSplash) { if (typeof g.GenericUiSplash.setError === 'function') g.GenericUiSplash.setError(msg, stack, title); else if (typeof g.GenericUiSplash.showError === 'function') { const e = new Error(msg); e.name = title; if (stack) e.stack = stack; g.GenericUiSplash.showError(e, title); } } } catch (_e) {} }")
+private external fun wasmSetSplashError(msg: String, stack: String, title: String)
+
+@JsFun("(fadeDurationMs) => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (g && g.GenericUiSplash && typeof g.GenericUiSplash.finish === 'function') g.GenericUiSplash.finish(fadeDurationMs); } catch (_e) {} }")
+private external fun wasmFinishSplash(fadeDurationMs: Int)
+
+@JsFun("(peer, onFileRead, onAllDone) => { " +
+    "try { " +
+    "  const files = peer.files; " +
+    "  const len = (files && typeof files.length === 'number') ? (files.length | 0) : 0; " +
+    "  if (len <= 0) { onAllDone(); return; } " +
+    "  let remaining = len; " +
+    "  for (let i = 0; i < len; i++) { " +
+    "    const f = files[i]; " +
+    "    const name = (f && typeof f.name === 'string') ? f.name : 'file'; " +
+    "    const path = (f && typeof f.webkitRelativePath === 'string' && f.webkitRelativePath.length > 0) ? f.webkitRelativePath : name; " +
+    "    const size = (f && typeof f.size === 'number') ? f.size : 0; " +
+    "    const mime = (f && typeof f.type === 'string') ? f.type : ''; " +
+    "    const reader = new FileReader(); " +
+    "    reader.onload = () => { " +
+    "      const res = typeof reader.result === 'string' ? reader.result : ''; " +
+    "      onFileRead(name, path, size, mime, res); " +
+    "      remaining--; if (remaining === 0) onAllDone(); " +
+    "    }; " +
+    "    reader.onerror = () => { " +
+    "      remaining--; if (remaining === 0) onAllDone(); " +
+    "    }; " +
+    "    reader.readAsDataURL(f); " +
+    "  } " +
+    "} catch (_e) { onAllDone(); } }")
+private external fun wasmReadFileInputFiles(
+    peer: JsAny,
+    onFileRead: (String, String, Double, String, String) -> Unit,
+    onAllDone: () -> Unit
+)
+
+@JsFun("(fileName, mimeType, dataUrl) => { " +
+    "try { " +
+    "  const commaIdx = dataUrl.indexOf(','); " +
+    "  const b64 = commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl; " +
+    "  const binStr = typeof atob === 'function' ? atob(b64) : ''; " +
+    "  const u8 = new Uint8Array(binStr.length); " +
+    "  for (let i = 0; i < binStr.length; i++) u8[i] = binStr.charCodeAt(i) & 0xFF; " +
+    "  const blob = new Blob([u8], { type: mimeType || 'application/octet-stream' }); " +
+    "  const url = URL.createObjectURL(blob); " +
+    "  const a = document.createElement('a'); " +
+    "  a.href = url; a.download = fileName || 'download.bin'; a.style.display = 'none'; " +
+    "  if (document.body) document.body.appendChild(a); " +
+    "  a.click(); " +
+    "  if (a.parentNode) a.parentNode.removeChild(a); " +
+    "  setTimeout(() => { URL.revokeObjectURL(url); }, 1000); " +
+    "  return true; " +
+    "} catch (_e) { return false; } }")
+private external fun wasmTriggerBrowserFileDownload(
+    fileName: String,
+    mimeType: String,
+    dataUrl: String
+): Boolean
 
 actual object WebBrowserDomBridge {
     actual val isBrowserEnvironment: Boolean
@@ -429,7 +1213,11 @@ actual object WebBrowserDomBridge {
             onChange = { v, c ->
                 model.updateValueFromBrowser(v)
                 model.updateCheckedFromBrowser(c)
-                model.dispatchFromBrowser("change", model.value)
+                if (model.tagName.equals("input", ignoreCase = true) && model.getAttribute("type") == "file") {
+                    handleWasmFileInputChange(model, peer)
+                } else {
+                    model.dispatchFromBrowser("change", model.value)
+                }
             },
             onCancel = {
                 model.dispatchFromBrowser("cancel", null)
@@ -442,45 +1230,98 @@ actual object WebBrowserDomBridge {
             },
             onError = {
                 model.dispatchFromBrowser("error", null)
+            },
+            onScroll = { st, sl, cw, ch, sw, sh ->
+                model.updateScrollFromBrowser(st, sl, cw, ch, sw, sh)
+                model.dispatchFromBrowser("scroll", null)
             }
         )
         wasmAttachInputListeners(
             peer = peer,
             hasContextMenuListener = { "contextmenu" in model.eventListeners },
             onContextMenu = { cx, cy ->
-                if ("contextmenu" in model.eventListeners) {
+                if (!model.disabled && "contextmenu" in model.eventListeners) {
                     model.dispatchEvent("contextmenu", "$cx,$cy")
                 }
             },
             onPointerDown = { x, y, btn, btns, shift, ctrl, alt, meta ->
-                model.dispatchFromBrowser(
-                    "pointerdown",
-                    PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
-                )
+                if (!model.disabled) {
+                    wasmEnsureGlobalWindowPointerDragBridge(
+                        onMove = { mx, my, mbtn, mbtns, mshift, mctrl, malt, mmeta ->
+                            if (com.nexustools.genericui.event.PointerDragManager.isDragging) {
+                                com.nexustools.genericui.event.PointerDragManager.notifyGlobalPointerMove(
+                                    PointerEvent(x = mx, y = my, button = mbtn, buttonsMask = mbtns, shiftKey = mshift, ctrlKey = mctrl, altKey = malt, metaKey = mmeta)
+                                )
+                            }
+                        },
+                        onUp = { ux, uy, ubtn, ubtns, ushift, uctrl, ualt, umeta ->
+                            if (com.nexustools.genericui.event.PointerDragManager.isDragging) {
+                                com.nexustools.genericui.event.PointerDragManager.notifyGlobalPointerUp(
+                                    PointerEvent(x = ux, y = uy, button = ubtn, buttonsMask = ubtns, shiftKey = ushift, ctrlKey = uctrl, altKey = ualt, metaKey = umeta)
+                                )
+                            }
+                        }
+                    )
+                    model.dispatchFromBrowser(
+                        "pointerdown",
+                        PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
+                    )
+                }
             },
             onPointerMove = { x, y, btn, btns, shift, ctrl, alt, meta ->
-                model.dispatchFromBrowser(
-                    "pointermove",
-                    PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
-                )
+                if (!model.disabled) {
+                    model.dispatchFromBrowser(
+                        "pointermove",
+                        PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
+                    )
+                }
             },
             onPointerUp = { x, y, btn, btns, shift, ctrl, alt, meta ->
-                model.dispatchFromBrowser(
-                    "pointerup",
-                    PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
-                )
+                if (!model.disabled) {
+                    model.dispatchFromBrowser(
+                        "pointerup",
+                        PointerEvent(x = x, y = y, button = btn, buttonsMask = btns, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta)
+                    )
+                }
             },
             onKeyDown = { key, code, shift, ctrl, alt, meta, repeat ->
-                model.dispatchFromBrowser(
-                    "keydown",
-                    KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
-                )
+                if (!model.disabled) {
+                    model.dispatchFromBrowser(
+                        "keydown",
+                        KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
+                    )
+                }
             },
             onKeyUp = { key, code, shift, ctrl, alt, meta, repeat ->
-                model.dispatchFromBrowser(
-                    "keyup",
-                    KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
+                if (!model.disabled) {
+                    model.dispatchFromBrowser(
+                        "keyup",
+                        KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
+                    )
+                }
+            }
+        )
+    }
+
+    private fun handleWasmFileInputChange(element: WebDomElement, peer: JsAny) {
+        val selected = ArrayList<SelectedFile>()
+        wasmReadFileInputFiles(
+            peer = peer,
+            onFileRead = { name, path, size, mime, dataUrl ->
+                val bytes = DataUrlCodec.decodeBytes(dataUrl) ?: ByteArray(0)
+                selected.add(
+                    SelectedFile(
+                        name = name,
+                        pathOrUri = path,
+                        sizeBytes = size.toLong(),
+                        mimeType = mime.takeIf { it.isNotEmpty() },
+                        isDirectory = false,
+                        bytesReader = { bytes }
+                    )
                 )
+            },
+            onAllDone = {
+                element.dispatchFromBrowser("change", selected)
             }
         )
     }
@@ -572,6 +1413,16 @@ actual object WebBrowserDomBridge {
     actual fun syncAccept(element: WebDomElement, accept: String) {
         val peer = element.browserPeer as? JsAny ?: return
         wasmSetAccept(peer, accept)
+    }
+
+    actual fun syncScrollTop(element: WebDomElement, scrollTop: Double) {
+        val peer = element.browserPeer as? JsAny ?: return
+        wasmSetScrollTop(peer, scrollTop)
+    }
+
+    actual fun syncScrollLeft(element: WebDomElement, scrollLeft: Double) {
+        val peer = element.browserPeer as? JsAny ?: return
+        wasmSetScrollLeft(peer, scrollLeft)
     }
 
     actual fun appendChild(parent: WebDomElement, child: WebDomElement) {
@@ -718,30 +1569,43 @@ actual object WebBrowserDomBridge {
     actual val hasLocalStorage: Boolean
         get() = isBrowserEnvironment && wasmHasLocalStorage()
 
-    actual fun localStorageGetItem(key: String): String? =
-        if (hasLocalStorage) wasmLocalStorageGetItem(key) else null
+    actual fun localStorageGetItem(key: String): String? {
+        if (hasLocalStorage) {
+            wasmLocalStorageGetItem(key)?.let { return it }
+        }
+        return headlessLocalStorage[key]
+    }
 
-    actual fun localStorageSetItem(key: String, value: String): Boolean =
-        if (hasLocalStorage) wasmLocalStorageSetItem(key, value) else false
+    actual fun localStorageSetItem(key: String, value: String): Boolean {
+        headlessLocalStorage[key] = value
+        return if (hasLocalStorage) wasmLocalStorageSetItem(key, value) else true
+    }
 
-    actual fun localStorageRemoveItem(key: String): Boolean =
-        if (hasLocalStorage) wasmLocalStorageRemoveItem(key) else false
+    actual fun localStorageRemoveItem(key: String): Boolean {
+        val existedInHeadless = headlessLocalStorage.remove(key) != null
+        return if (hasLocalStorage) wasmLocalStorageRemoveItem(key) else existedInHeadless
+    }
 
-    actual fun localStorageClear(): Boolean =
-        if (hasLocalStorage) wasmLocalStorageClear() else false
+    actual fun localStorageClear(): Boolean {
+        headlessLocalStorage.clear()
+        return if (hasLocalStorage) wasmLocalStorageClear() else true
+    }
 
     actual fun localStorageKeys(): List<String> {
-        if (!hasLocalStorage) return emptyList()
-        val len = wasmLocalStorageLength()
-        val out = ArrayList<String>(len)
-        for (i in 0 until len) {
-            val k = wasmLocalStorageKeyAt(i)
-            if (k != null) out.add(k)
+        val out = LinkedHashSet<String>()
+        if (hasLocalStorage) {
+            val len = wasmLocalStorageLength()
+            for (i in 0 until len) {
+                val k = wasmLocalStorageKeyAt(i)
+                if (k != null) out.add(k)
+            }
         }
-        return out
+        out.addAll(headlessLocalStorage.keys)
+        return out.toList()
     }
 
     actual fun registerStorageListener(onStorageChanged: (key: String?, newValue: String?) -> Unit) {
+        headlessStorageListeners.add(onStorageChanged)
         if (!isBrowserEnvironment) return
         wasmRegisterStorageListener { key, hasKey, newValue, hasNewValue ->
             onStorageChanged(
@@ -864,5 +1728,330 @@ actual object WebBrowserDomBridge {
                 if (hasJson) json else null
             )
         }
+    }
+
+    actual fun getPreloadedResourceDataUrl(key: String): String? {
+        getPreloadedDataUrlFromMemory(key)?.let { return it }
+        for (candidate in expandPreloadedResourceLookupKeys(key)) {
+            val found = wasmGetPreloadedDataUrl(candidate)
+            if (!found.isNullOrBlank()) return found
+        }
+        return null
+    }
+
+    actual fun getPreloadedResourceBytes(key: String): ByteArray? {
+        getPreloadedBytesFromMemory(key)?.let { return it }
+        val dataUrl = getPreloadedResourceDataUrl(key)
+        if (!dataUrl.isNullOrBlank()) {
+            DataUrlCodec.decodeBytes(dataUrl)?.let { return it }
+        }
+        for (candidate in expandPreloadedResourceLookupKeys(key)) {
+            val text = wasmGetPreloadedText(candidate)
+            if (text != null) return text.encodeToByteArray()
+        }
+        return null
+    }
+
+    actual fun getPreloadedResourceText(key: String): String? {
+        getPreloadedTextFromMemory(key)?.let { return it }
+        for (candidate in expandPreloadedResourceLookupKeys(key)) {
+            val text = wasmGetPreloadedText(candidate)
+            if (text != null) return text
+        }
+        val dataUrl = getPreloadedResourceDataUrl(key)
+        if (!dataUrl.isNullOrBlank()) {
+            return DataUrlCodec.decodeUtf8Text(dataUrl)
+        }
+        return null
+    }
+
+    actual fun hasPreloadedResource(key: String): Boolean {
+        if (hasPreloadedResourceInMemory(key)) return true
+        for (candidate in expandPreloadedResourceLookupKeys(key)) {
+            if (wasmHasPreloadedResource(candidate)) return true
+        }
+        return false
+    }
+
+    actual fun registerPreloadedResource(key: String, mimeType: String, bytes: ByteArray, text: String?) {
+        val (resolvedMime, dataUrl, resolvedText) = registerPreloadedResourceInMemory(key, mimeType, bytes, text)
+        for (candidate in expandPreloadedResourceLookupKeys(key)) {
+            wasmSetPreloadedResource(
+                key = candidate,
+                mimeType = resolvedMime,
+                dataUrl = dataUrl,
+                text = resolvedText ?: "",
+                hasText = resolvedText != null
+            )
+        }
+    }
+
+    actual fun clearPreloadedResources() {
+        clearPreloadedResourcesInMemory()
+        wasmClearPreloadedResources()
+    }
+
+    actual fun requestElementFullscreen(element: WebDomElement?): Boolean {
+        activeFullscreenElement = element
+        if (!isBrowserEnvironment) return true
+        return wasmRequestElementFullscreen(element?.browserPeer as? JsAny)
+    }
+
+    actual fun exitFullscreen(): Boolean {
+        activeFullscreenElement = null
+        if (!isBrowserEnvironment) return true
+        return wasmExitFullscreen()
+    }
+
+    actual fun bindInvisibleHtmlImageLoader(
+        imgElement: WebDomElement,
+        src: String,
+        onLoaded: (naturalWidth: Int, naturalHeight: Int) -> Unit,
+        onError: (String) -> Unit
+    ): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = imgElement.browserPeer as? JsAny ?: return false
+        imgElement.setAttribute("src", src)
+        return wasmBindInvisibleImageLoader(
+            peer = peer,
+            src = src,
+            onLoaded = { natW, natH ->
+                imgElement.setAttribute("data-complete", "true")
+                imgElement.setAttribute("data-natural-width", natW.toString())
+                imgElement.setAttribute("data-natural-height", natH.toString())
+                onLoaded(natW, natH)
+            },
+            onError = { err ->
+                imgElement.setAttribute("data-error", "true")
+                onError(err)
+            }
+        )
+    }
+
+    actual fun attachMediaElementListeners(element: WebDomElement) {
+        if (!isBrowserEnvironment) return
+        val peer = element.browserPeer as? JsAny ?: return
+        wasmAttachMediaListeners(
+            peer = peer,
+            onPlay = { element.dispatchFromBrowser("play", null) },
+            onPlaying = { element.dispatchFromBrowser("playing", null) },
+            onPause = { element.dispatchFromBrowser("pause", null) },
+            onEnded = { element.dispatchFromBrowser("ended", null) },
+            onWaiting = { element.dispatchFromBrowser("waiting", null) },
+            onCanPlay = { element.dispatchFromBrowser("canplay", null) },
+            onTimeUpdate = { ctSeconds ->
+                element.setAttribute("data-current-time", ctSeconds.toString())
+                element.dispatchFromBrowser("timeupdate", ctSeconds)
+            },
+            onDurationChange = { durSeconds ->
+                element.setAttribute("data-duration", durSeconds.toString())
+                element.dispatchFromBrowser("durationchange", durSeconds)
+            },
+            onLoadedMetadata = {
+                element.dispatchFromBrowser("loadedmetadata", null)
+            },
+            onBufferedSync = { rangesStr, maxEnd ->
+                element.setAttribute("data-buffered-ranges", rangesStr)
+                element.setAttribute("data-buffered-time", maxEnd.toString())
+            },
+            onProgress = { endSec ->
+                element.setAttribute("data-buffered-time", endSec.toString())
+                element.dispatchFromBrowser("progress", endSec)
+            },
+            onError = { errMsg ->
+                element.dispatchFromBrowser("error", errMsg)
+            }
+        )
+    }
+
+    actual fun mediaCanPlayType(element: WebDomElement, mimeType: String): Boolean {
+        if (!isBrowserEnvironment) return false
+        return wasmMediaCanPlayType(element.browserPeer as? JsAny, mimeType)
+    }
+
+    actual fun mediaLoad(element: WebDomElement, seekOffsetSeconds: Double): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = element.browserPeer as? JsAny ?: return false
+        return wasmMediaLoad(peer, seekOffsetSeconds)
+    }
+
+    actual fun mediaPlay(element: WebDomElement, onRejected: ((String) -> Unit)?): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = element.browserPeer as? JsAny ?: return false
+        return wasmMediaPlay(peer) { err ->
+            onRejected?.invoke(err)
+        }
+    }
+
+    actual fun mediaPause(element: WebDomElement): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = element.browserPeer as? JsAny ?: return false
+        return wasmMediaPause(peer)
+    }
+
+    actual fun mediaSeekTo(element: WebDomElement, seconds: Double): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = element.browserPeer as? JsAny ?: return false
+        return wasmMediaSeekTo(peer, seconds)
+    }
+
+    actual fun mediaSetVolume(element: WebDomElement, volume: Float): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = element.browserPeer as? JsAny ?: return false
+        return wasmMediaSetVolume(peer, volume)
+    }
+
+    actual fun mediaSetMuted(element: WebDomElement, muted: Boolean): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = element.browserPeer as? JsAny ?: return false
+        return wasmMediaSetMuted(peer, muted)
+    }
+
+    actual fun mediaSetPlaybackRate(element: WebDomElement, rate: Float): Boolean {
+        if (!isBrowserEnvironment) return false
+        val peer = element.browserPeer as? JsAny ?: return false
+        return wasmMediaSetPlaybackRate(peer, rate)
+    }
+
+    actual fun installModalFocusTrap(modalElement: WebDomElement) {
+        registerHeadlessModalFocusTrap(modalElement)
+        if (!isBrowserEnvironment) return
+        val peer = modalElement.browserPeer as? JsAny ?: return
+        wasmInstallModalFocusTrap(peer)
+    }
+
+    actual fun releaseModalFocusTrap(modalElement: WebDomElement) {
+        unregisterHeadlessModalFocusTrap(modalElement)
+        if (!isBrowserEnvironment) return
+        val peer = modalElement.browserPeer as? JsAny ?: return
+        wasmReleaseModalFocusTrap(peer)
+    }
+
+    actual fun attachOverscrollStretch(scrollElement: WebDomElement, contentViewport: WebDomElement) {
+        attachHeadlessOverscrollStretch(scrollElement, contentViewport)
+        if (!isBrowserEnvironment) return
+        val scrollPeer = scrollElement.browserPeer as? JsAny ?: return
+        val viewportPeer = contentViewport.browserPeer as? JsAny ?: return
+        wasmAttachOverscrollStretch(scrollPeer, viewportPeer)
+    }
+
+    actual fun attachLazyViewportObserver(
+        scrollElement: WebDomElement,
+        viewportElement: WebDomElement,
+        isHorizontal: () -> Boolean,
+        onViewportChanged: (
+            scrollOffsetPx: Double,
+            viewportExtentPx: Int,
+            measuredViewportSpanPx: Int,
+            renderedChildCount: Int
+        ) -> Unit
+    ) {
+        scrollElement.setAttribute("data-lazy-viewport-observer", "true")
+        if (!isBrowserEnvironment) return
+        val scrollPeer = scrollElement.browserPeer as? JsAny ?: return
+        val viewportPeer = viewportElement.browserPeer as? JsAny ?: return
+        wasmAttachLazyViewportObserver(
+            scrollPeer = scrollPeer,
+            viewportPeer = viewportPeer,
+            isHorizFn = isHorizontal
+        ) { scrollOffsetPx, viewportExtentPx, measuredSpanPx, childCount, scrollW, scrollH ->
+            if (isHorizontal()) {
+                scrollElement.updateScrollFromBrowser(
+                    newScrollTop = scrollElement.scrollTop,
+                    newScrollLeft = scrollOffsetPx,
+                    clientW = viewportExtentPx,
+                    clientH = scrollElement.clientHeight,
+                    scrollW = scrollW,
+                    scrollH = scrollH
+                )
+            } else {
+                scrollElement.updateScrollFromBrowser(
+                    newScrollTop = scrollOffsetPx,
+                    newScrollLeft = scrollElement.scrollLeft,
+                    clientW = scrollElement.clientWidth,
+                    clientH = viewportExtentPx,
+                    scrollW = scrollW,
+                    scrollH = scrollH
+                )
+            }
+            onViewportChanged(scrollOffsetPx, viewportExtentPx, measuredSpanPx, childCount)
+        }
+    }
+
+    actual fun attachSeekBarScrubbing(
+        containerElement: WebDomElement,
+        rangeInputElement: WebDomElement,
+        onScrubStart: (fraction: Double) -> Unit,
+        onScrubMove: (fraction: Double) -> Unit,
+        onScrubEnd: (fraction: Double) -> Unit
+    ) {
+        if (!isBrowserEnvironment) {
+            attachHeadlessSeekBarScrubbing(containerElement, onScrubStart, onScrubMove, onScrubEnd)
+            return
+        }
+        val containerPeer = containerElement.browserPeer as? JsAny ?: return
+        val rangePeer = rangeInputElement.browserPeer as? JsAny
+        wasmAttachSeekBarScrubbing(containerPeer, rangePeer, onScrubStart, onScrubMove, onScrubEnd)
+    }
+
+    actual fun registerWindowKeyEvents(
+        onKeyDown: (com.nexustools.genericui.event.KeyEvent) -> Unit,
+        onKeyUp: (com.nexustools.genericui.event.KeyEvent) -> Unit
+    ) {
+        if (!isBrowserEnvironment) return
+        wasmRegisterWindowKeyEvents(
+            onKeyDown = { key, code, shift, ctrl, alt, meta, repeat ->
+                onKeyDown(KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat))
+            },
+            onKeyUp = { key, code, shift, ctrl, alt, meta, repeat ->
+                onKeyUp(KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat))
+            }
+        )
+    }
+
+    actual fun setWebSplashStatus(statusText: String, type: BootstrapType) {
+        val trimmed = statusText.trim().ifEmpty { WebSplashConfig.STATUS_INITIALIZING }
+        lastWebSplashStatus = trimmed
+        lastWebSplashStatusType = type
+        if (!isBrowserEnvironment) return
+        wasmSetSplashStatus(trimmed, type.cssSuffix)
+    }
+
+    actual fun setWebSplashProgress(progressPercent: Int, type: BootstrapType) {
+        val clamped = progressPercent.coerceIn(0, 100)
+        lastWebSplashProgress = clamped
+        lastWebSplashProgressType = type
+        if (!isBrowserEnvironment) return
+        wasmSetSplashProgress(clamped, type.cssSuffix)
+    }
+
+    actual fun setWebSplashError(message: String, stackTrace: String?, title: String) {
+        val resolvedTitle = title.trim().ifEmpty { WebSplashConfig.STATUS_ERROR }
+        lastWebSplashStatus = WebSplashConfig.STATUS_ERROR
+        lastWebSplashStatusType = BootstrapType.DANGER
+        lastWebSplashProgress = 100
+        lastWebSplashProgressType = BootstrapType.DANGER
+        lastWebSplashErrorMessage = message
+        lastWebSplashErrorStack = stackTrace
+        lastWebSplashErrorTitle = resolvedTitle
+        if (!isBrowserEnvironment) return
+        wasmSetSplashError(message, stackTrace ?: "", resolvedTitle)
+    }
+
+    actual fun finishWebSplash(fadeDurationMs: Int) {
+        lastWebSplashStatus = WebSplashConfig.STATUS_READY
+        lastWebSplashStatusType = BootstrapType.SUCCESS
+        lastWebSplashProgress = 100
+        isWebSplashFinished = true
+        if (!isBrowserEnvironment) return
+        wasmFinishSplash(fadeDurationMs.coerceAtLeast(0))
+    }
+
+    actual fun triggerBrowserFileDownload(fileName: String, mimeType: String, bytes: ByteArray): Boolean {
+        if (!isBrowserEnvironment) return true
+        val resolvedMime = mimeType.ifBlank { "application/octet-stream" }
+        val resolvedName = fileName.ifBlank { "download.bin" }
+        val dataUrl = DataUrlCodec.encodeBytes(bytes, resolvedMime)
+        return wasmTriggerBrowserFileDownload(resolvedName, resolvedMime, dataUrl)
     }
 }
