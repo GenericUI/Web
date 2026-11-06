@@ -45,6 +45,7 @@ class WebTabImpl(
     private var customHeaderImpl: NativeImpl<*>? = null
     private var onCloseClickedListener: (() -> Unit)? = null
     private var onTitleEditedListener: ((String) -> Unit)? = null
+    private var tabClickAction: (() -> Unit)? = null
 
     init {
         nativeWidget.setAttribute("role", "presentation")
@@ -55,6 +56,15 @@ class WebTabImpl(
         closeBtn.addEventListener("click") {
             onCloseClickedListener?.invoke()
         }
+    }
+
+    override fun setOnClick(listener: (() -> Unit)?) {
+        tabClickAction = listener
+        super.setOnClick(listener)
+    }
+
+    internal fun dispatchClick() {
+        tabClickAction?.invoke()
     }
 
     override fun setTabIdNative(id: String) {

@@ -28,7 +28,8 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         private set
 
     private val tabImpls = mutableListOf<TabNativeImpl<*>?>()
-    private val tabPanes = mutableListOf<Pair<String, NativeImpl<*>>>()
+    private val tabPanes = mutableListOf<Pair<String, NativeImpl<*>?>>()
+    private val buttonTabFlags = mutableListOf<Boolean>()
     private var selectedIndex: Int = 0
     private var onTabSelectedListener: ((Int) -> Unit)? = null
     private var onTabCloseRequestedListener: ((Int) -> Boolean)? = null
@@ -39,11 +40,11 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         nativeWidget.appendChild(tabContentElement)
     }
 
-    override fun addChildNative(child: NativeImpl<*>, index: Int) {
+    override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         // TabContainer manages child mounting into navListElement and tabContentElement via addTabNative.
     }
 
-    override fun removeChildNative(child: NativeImpl<*>) {
+    override fun removeChildNative(childImpl: NativeImpl<*>) {
         // Managed by removeTabNative.
     }
 
@@ -52,6 +53,32 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         tabContentElement.clearChildren()
         tabImpls.clear()
         tabPanes.clear()
+        buttonTabFlags.clear()
+    }
+
+    private fun syncPaneDomVisibility() {
+        tabImpls.forEachIndexed { i, tabImpl ->
+            val isBtn = buttonTabFlags.getOrElse(i) { false }
+            tabImpl?.setSelectedNative(i == selectedIndex && !isBtn)
+        }
+        tabPanes.forEachIndexed { i, (_, impl) ->
+            val dom = impl?.nativeWidget as? WebDomElement ?: return@forEachIndexed
+            val isBtn = buttonTabFlags.getOrElse(i) { false }
+            val isActive = (i == selectedIndex) && !isBtn
+            if (isActive) {
+                dom.classList.add("active")
+                dom.classList.add("show")
+                dom.classList.remove("d-none")
+                if (dom.style["display"] == "none") {
+                    dom.style.remove("display")
+                }
+            } else {
+                dom.classList.remove("active")
+                dom.classList.remove("show")
+                dom.classList.add("d-none")
+                dom.style["display"] = "none"
+            }
+        }
     }
 
     override fun addTabNative(tabImpl: TabNativeImpl<*>, contentImpl: NativeImpl<*>, index: Int) {
@@ -65,38 +92,94 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         val existingIdx = tabImpls.indexOfFirst { it === tabImpl }
         if (existingIdx >= 0) {
             tabPanes[existingIdx] = title to contentImpl
+            buttonTabFlags[existingIdx] = false
             if (tabDom != null && tabDom.parent !== navListElement) {
                 navListElement.appendChild(tabDom)
             }
             if (contentDom != null && contentDom.parent !== tabContentElement) {
                 tabContentElement.appendChild(contentDom)
             }
+            syncPaneDomVisibility()
             return
         }
 
         if (index < 0 || index >= tabPanes.size) {
-            val targetIdx = tabPanes.size
             tabImpls.add(tabImpl)
             tabPanes.add(title to contentImpl)
+            buttonTabFlags.add(false)
             if (tabDom != null) navListElement.appendChild(tabDom)
             if (contentDom != null) tabContentElement.appendChild(contentDom)
             webTab?.buttonElement?.addEventListener("click") {
                 val currentIdx = tabImpls.indexOf(tabImpl)
                 if (currentIdx >= 0) setSelectedTabIndex(currentIdx, true)
             }
-            if (targetIdx == 0) {
-                setSelectedTabIndex(0, false)
-            }
         } else {
             tabImpls.add(index, tabImpl)
             tabPanes.add(index, title to contentImpl)
+            buttonTabFlags.add(index, false)
             if (tabDom != null) navListElement.insertChildAt(index, tabDom)
-            if (contentDom != null) tabContentElement.insertChildAt(index, contentDom)
+            if (contentDom != null) {
+                val contentInsertIdx = tabPanes.take(index).count { it.second != null }
+                tabContentElement.insertChildAt(contentInsertIdx, contentDom)
+            }
             webTab?.buttonElement?.addEventListener("click") {
                 val currentIdx = tabImpls.indexOf(tabImpl)
                 if (currentIdx >= 0) setSelectedTabIndex(currentIdx, true)
             }
         }
+        if (selectedIndex !in tabPanes.indices || buttonTabFlags.getOrElse(selectedIndex) { false }) {
+            val firstSelectable = buttonTabFlags.indexOfFirst { !it }
+            if (firstSelectable >= 0) {
+                selectedIndex = firstSelectable
+            }
+        }
+        syncPaneDomVisibility()
+    }
+
+    override fun addButtonTabNative(tabImpl: TabNativeImpl<*>, index: Int) {
+        val webTab = tabImpl as? WebTabImpl
+        val title = webTab?.titleVal ?: ""
+        val tabDom = tabImpl.nativeWidget as? WebDomElement
+        webTab?.buttonElement?.apply {
+            setAttribute("role", "button")
+            classList.remove("active")
+            setAttribute("aria-selected", "false")
+        }
+
+        val existingIdx = tabImpls.indexOfFirst { it === tabImpl }
+        if (existingIdx >= 0) {
+            tabPanes[existingIdx] = title to null
+            buttonTabFlags[existingIdx] = true
+            if (tabDom != null && tabDom.parent !== navListElement) {
+                navListElement.appendChild(tabDom)
+            }
+            syncPaneDomVisibility()
+            return
+        }
+
+        if (index < 0 || index >= tabPanes.size) {
+            tabImpls.add(tabImpl)
+            tabPanes.add(title to null)
+            buttonTabFlags.add(true)
+            if (tabDom != null) navListElement.appendChild(tabDom)
+        } else {
+            tabImpls.add(index, tabImpl)
+            tabPanes.add(index, title to null)
+            buttonTabFlags.add(index, true)
+            if (tabDom != null) navListElement.insertChildAt(index, tabDom)
+        }
+        webTab?.buttonElement?.addEventListener("click") {
+            webTab.setSelectedNative(false)
+            if (webTab.hasClickListener()) {
+                webTab.dispatchClick()
+            } else {
+                val currentIdx = tabImpls.indexOf(tabImpl)
+                if (currentIdx >= 0) {
+                    onTabSelectedListener?.invoke(currentIdx)
+                }
+            }
+        }
+        syncPaneDomVisibility()
     }
 
     override fun addTabNative(title: String, contentImpl: NativeImpl<*>, index: Int) {
@@ -117,10 +200,22 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         val removedTab = tabImpls.removeAt(index)
         (removedTab?.nativeWidget as? WebDomElement)?.let { navListElement.removeChild(it) }
         val (_, impl) = tabPanes.removeAt(index)
-        (impl.nativeWidget as? WebDomElement)?.let { tabContentElement.removeChild(it) }
-        if (selectedIndex >= tabPanes.size) {
-            selectedIndex = (tabPanes.size - 1).coerceAtLeast(0)
+        buttonTabFlags.removeAt(index)
+        (impl?.nativeWidget as? WebDomElement)?.let { tabContentElement.removeChild(it) }
+        if (tabPanes.isNotEmpty()) {
+            if (selectedIndex >= tabPanes.size) {
+                selectedIndex = (tabPanes.size - 1).coerceAtLeast(0)
+            }
+            if (buttonTabFlags.getOrElse(selectedIndex) { false }) {
+                val firstSelectable = buttonTabFlags.indexOfFirst { !it }
+                if (firstSelectable >= 0) {
+                    selectedIndex = firstSelectable
+                }
+            }
+        } else {
+            selectedIndex = 0
         }
+        syncPaneDomVisibility()
     }
 
     override fun setTabTitleNative(index: Int, title: String) {
@@ -163,21 +258,20 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
 
     override fun setSelectedTabIndex(index: Int, fadeTransition: Boolean) {
         if (index !in tabPanes.indices) return
+        if (buttonTabFlags.getOrElse(index) { false }) {
+            val webTab = tabImpls.getOrNull(index) as? WebTabImpl
+            webTab?.setSelectedNative(false)
+            if (webTab != null && webTab.hasClickListener()) {
+                webTab.dispatchClick()
+            } else {
+                onTabSelectedListener?.invoke(index)
+            }
+            syncPaneDomVisibility()
+            return
+        }
         val changed = (selectedIndex != index)
         selectedIndex = index
-        tabImpls.forEachIndexed { i, tabImpl ->
-            tabImpl?.setSelectedNative(i == index)
-        }
-        tabPanes.forEachIndexed { i, (_, impl) ->
-            val dom = impl.nativeWidget as? WebDomElement ?: return@forEachIndexed
-            if (i == index) {
-                dom.classList.add("active")
-                dom.classList.add("show")
-            } else {
-                dom.classList.remove("active")
-                dom.classList.remove("show")
-            }
-        }
+        syncPaneDomVisibility()
         if (changed) {
             onTabSelectedListener?.invoke(index)
         }

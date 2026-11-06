@@ -373,12 +373,23 @@ class WebBackendTest {
 
         // Verify HybridSplitNavigationContainer places tabs on bottom on portrait small screens and top on medium/large screens
         val splitNav = HybridSplitNavigationContainer(inColumnMode = false)
-        splitNav.addSection(id = "queue", title = "Queue", content = Container())
-        splitNav.addSection(id = "shows", title = "Shows", content = Container())
+        splitNav.addSection(id = "movies", title = "Movies", content = Container())
+        splitNav.addSection(id = "shows", title = "TV Shows", content = Container())
+        splitNav.addSection(id = "music", title = "Music", content = Container())
+        splitNav.addSection(id = "radio", title = "Radio", content = Container())
+        splitNav.addSection(id = "podcasts", title = "Podcast", content = Container())
+        var searchClicked = 0
+        splitNav.addButtonSection(id = "search", title = "Search", icon = "bi-search") {
+            searchClicked += 1
+        }
         assertEquals(TabPosition.BOTTOM, splitNav.topTabLayout.tabPosition)
 
+        window.addChild(splitNav)
         splitNav.inColumnMode = true
         assertEquals(TabPosition.TOP, splitNav.topTabLayout.tabPosition)
+        val splitWebTabs = splitNav.topTabLayout.nativeImpl as WebTabContainerImpl
+        assertEquals(6, splitWebTabs.navListElement.children.size)
+        assertEquals(5, splitWebTabs.tabContentElement.children.size)
     }
 
     @Test
@@ -452,5 +463,144 @@ class WebBackendTest {
         assertTrue(popover.nativeWidget.enumClasses.contains("popover"))
         assertTrue(popover.nativeWidget.classList.contains("bs-popover-top"))
         assertEquals("Details", popover.headerElement.textContent)
+    }
+
+    @Test
+    fun testDialogBackdropBlurDismissPopupCaptureAndTextInputKeySuppression() {
+        val factory = WebNativeFactory()
+        GenericUI.activeFactory = factory
+        factory.createApplication()
+        com.nexustools.genericui.event.PopupMouseCaptureManager.clear()
+        com.nexustools.genericui.event.InputFocusManager.reset()
+
+        // 1. DialogWindow modal backdrop blur + click-outside dismiss vs inside click
+        val dialog = factory.createDialogWindow() as WebDialogWindowImpl
+        dialog.setTitle("Modal Dialog")
+        dialog.setModal(true)
+        var dialogClosedCount = 0
+        dialog.setOnDialogClosed { dialogClosedCount++ }
+        dialog.showDialog(null)
+        assertTrue(dialog.isVisible())
+        assertEquals("blur(6px)", dialog.backdropElement.style["backdrop-filter"])
+        assertEquals("blur(6px)", dialog.backdropElement.style["-webkit-backdrop-filter"])
+        assertEquals("blur(6px)", dialog.nativeWidget.style["backdrop-filter"])
+        assertEquals("blur(6px)", dialog.nativeWidget.style["-webkit-backdrop-filter"])
+
+        // Clicking inside modalDialog should NOT dismiss the dialog
+        dialog.nativeWidget.dispatchFromBrowser("click", dialog.modalBody)
+        assertTrue(dialog.isVisible())
+        assertEquals(0, dialogClosedCount)
+
+        // Clicking on nativeWidget backdrop outside modalDialog SHOULD dismiss the dialog
+        dialog.nativeWidget.dispatchFromBrowser("click", dialog.nativeWidget)
+        assertFalse(dialog.isVisible(), "Expected dialog.isVisible() to be false after backdrop click")
+        assertEquals(1, dialogClosedCount)
+
+        // 2. PopupMouseCaptureManager on component with hookMouseWhenPopupVisible = true
+        val rootContainer = Container()
+        val popupPanel = StyledContainer().apply {
+            isVisible = false
+            hookMouseWhenPopupVisible = true
+        }
+        val insideButton = com.nexustools.genericui.component.action.Button("Inside").apply {
+            // attached inside popupPanel
+        }
+        val outsideButton = com.nexustools.genericui.component.action.Button("Outside")
+        var insideClicks = 0
+        var outsideClicks = 0
+        insideButton.onClick = { insideClicks++ }
+        outsideButton.onClick = { outsideClicks++ }
+        popupPanel.addChild(insideButton)
+        rootContainer.addChild(popupPanel)
+        rootContainer.addChild(outsideButton)
+        val hostWindow = Window("Popup Capture Host")
+        hostWindow.addChild(rootContainer)
+        hostWindow.show()
+
+        popupPanel.isVisible = true
+        assertTrue(com.nexustools.genericui.event.PopupMouseCaptureManager.hasActivePopup)
+
+        // Clicking inside the popup should trigger insideButton and keep popup visible
+        val insideDom = (insideButton.nativeImpl as WebBaseNativeImpl).nativeWidget
+        insideDom.dispatchEvent("click")
+        assertEquals(1, insideClicks)
+        assertTrue(popupPanel.isVisible)
+        assertTrue(com.nexustools.genericui.event.PopupMouseCaptureManager.hasActivePopup)
+
+        // Clicking outsideButton while popup is open should dismiss popup and swallow outsideButton's click
+        val outsideDom = (outsideButton.nativeImpl as WebBaseNativeImpl).nativeWidget
+        outsideDom.dispatchEvent("click")
+        assertFalse(
+            popupPanel.isVisible,
+            "Expected popupPanel.isVisible=false after outsideDom click (activePopupCount=${com.nexustools.genericui.event.PopupMouseCaptureManager.activePopupCount}, popupBounds=${popupPanel.bounds}, contains=${(popupPanel.nativeImpl as? WebBaseNativeImpl)?.nativeWidget?.containsDomElement(outsideDom)})"
+        )
+        assertFalse(com.nexustools.genericui.event.PopupMouseCaptureManager.hasActivePopup, "Expected hasActivePopup=false")
+        assertEquals(0, outsideClicks)
+
+        // Subsequent click on outsideButton now fires normally
+        outsideDom.dispatchEvent("click")
+        assertEquals(1, outsideClicks)
+
+        // 2b. Direct PopupMouseCaptureManager.registerPopup (without custom hitTester) + nested subtree & same-gesture protection
+        val directPopup = StyledContainer().apply {
+            isVisible = false
+            bounds = com.nexustools.genericui.geometry.Rect(0, 0, 200, 200)
+        }
+        val nestedRow = Container()
+        val deepChildBtn = com.nexustools.genericui.component.action.Button("Deep Option")
+        var deepClicks = 0
+        deepChildBtn.onClick = { deepClicks++ }
+        nestedRow.addChild(deepChildBtn)
+        directPopup.addChild(nestedRow)
+        rootContainer.addChild(directPopup)
+
+        // Simulate opening directPopup during a pointerdown gesture, followed by click on the trigger button
+        outsideDom.dispatchEvent("pointerdown")
+        directPopup.isVisible = true
+        com.nexustools.genericui.event.PopupMouseCaptureManager.registerPopup(directPopup) {
+            directPopup.isVisible = false
+        }
+        outsideDom.dispatchEvent("pointerup")
+        outsideDom.dispatchEvent("click")
+        // Same-gesture click on the trigger button must NOT immediately dismiss directPopup
+        assertTrue(directPopup.isVisible, "Popup opened during pointerdown must not self-dismiss on same-gesture click")
+        assertTrue(com.nexustools.genericui.event.PopupMouseCaptureManager.hasActivePopup)
+
+        // Clicking a deeply nested child inside directPopup must NOT dismiss directPopup
+        val deepChildDom = (deepChildBtn.nativeImpl as WebBaseNativeImpl).nativeWidget
+        deepChildDom.dispatchEvent("pointerdown")
+        deepChildDom.dispatchEvent("pointerup")
+        deepChildDom.dispatchEvent("click")
+        assertEquals(1, deepClicks)
+        assertTrue(directPopup.isVisible, "Clicking nested child inside registered popup must not dismiss it")
+
+        // Clicking outsideButton with NaN coordinates must dismiss directPopup even when directPopup.bounds starts at (0,0)
+        outsideDom.dispatchEvent("click")
+        assertFalse(directPopup.isVisible, "Clicking outside with NaN coordinates must dismiss directPopup even if bounds starts at (0,0)")
+        assertFalse(com.nexustools.genericui.event.PopupMouseCaptureManager.hasActivePopup)
+
+        // 3. TextInput focus suppresses window/component shortcut key events
+        val textField = com.nexustools.genericui.component.form.TextField()
+        rootContainer.addChild(textField)
+        var shortcutTriggered = 0
+        rootContainer.onKeyDown = { shortcutTriggered++ }
+
+        val rootDom = (rootContainer.nativeImpl as WebBaseNativeImpl).nativeWidget
+        val inputDom = (textField.nativeImpl as WebBaseNativeImpl).nativeWidget
+
+        rootDom.dispatchEvent("keydown", com.nexustools.genericui.event.KeyEvent(key = " ", code = "Space"))
+        assertEquals(1, shortcutTriggered)
+
+        // Focus text input -> shortcut key events on non-input components must be ignored
+        inputDom.dispatchEvent("focus")
+        assertTrue(com.nexustools.genericui.event.InputFocusManager.isTypingInTextInput)
+        rootDom.dispatchEvent("keydown", com.nexustools.genericui.event.KeyEvent(key = " ", code = "Space"))
+        assertEquals(1, shortcutTriggered)
+
+        // Blur text input -> shortcut key events resume working
+        inputDom.dispatchEvent("blur")
+        assertFalse(com.nexustools.genericui.event.InputFocusManager.isTypingInTextInput)
+        rootDom.dispatchEvent("keydown", com.nexustools.genericui.event.KeyEvent(key = " ", code = "Space"))
+        assertEquals(2, shortcutTriggered)
     }
 }

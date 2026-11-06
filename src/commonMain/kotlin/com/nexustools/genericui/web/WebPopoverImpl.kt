@@ -71,10 +71,21 @@ class WebPopoverImpl : WebBaseContainerNativeImpl("genericui:popover", "popover 
         nativeWidget.style["top"] = "${y}px"
         nativeWidget.classList.add("show")
         setVisible(true)
+        com.nexustools.genericui.event.PopupMouseCaptureManager.registerNativePopup(
+            nativePopup = this,
+            hitTester = { _, _, target -> nativeWidget.containsDomElement(target) },
+            onDismiss = { hide() }
+        )
     }
 
     override fun hide() {
+        com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
         nativeWidget.classList.remove("show")
         setVisible(false)
+    }
+
+    override fun dispose() {
+        com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
+        super.dispose()
     }
 }

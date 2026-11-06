@@ -1,9 +1,15 @@
 package com.nexustools.genericui.web
 
 import com.nexustools.genericui.component.action.Button
+import com.nexustools.genericui.component.content.ImageView
+import com.nexustools.genericui.component.document.BookContainer
 import com.nexustools.genericui.component.media.Image
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.enums.document.PrintPageOrientation
+import com.nexustools.genericui.enums.document.PrintPageSize
+import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.res.DataUrlCodec
 import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.res.Resources
@@ -16,6 +22,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WebPreloadedResourcesAndDataUrlTest {
@@ -182,5 +189,91 @@ class WebPreloadedResourcesAndDataUrlTest {
         val imgSrc = webImage.nativeWidget.getAttribute("src").orEmpty()
         assertTrue(imgSrc.startsWith("data:image/png;base64,"), "Expected img.src to be data:image/png;base64,... but got $imgSrc")
         assertContentEquals(fakePngBytes, DataUrlCodec.decodeBytes(imgSrc))
+    }
+
+    @Test
+    fun testWebImageSetImageBufferAndBookContainerIframePreview() {
+        val factory = WebNativeFactory()
+        GenericUI.activeFactory = factory
+        factory.createApplication()
+
+        // 1. Direct WebImageImpl.setImageBuffer(buffer)
+        val rawWebImage = factory.createImage() as WebImageImpl
+        var loadCallCount = 0
+        rawWebImage.setOnLoad { loadCallCount++ }
+
+        val buffer = ImageBuffer(width = 12, height = 8).apply {
+            fill(RgbaColor(37, 99, 235, 1f))
+        }
+        rawWebImage.setImageBuffer(buffer)
+
+        assertEquals(1, loadCallCount)
+        assertFalse(rawWebImage.isLoading())
+        assertNull(rawWebImage.nativeWidget.getAttribute("data-genericui-loading"))
+        assertNull(rawWebImage.nativeWidget.getAttribute("data-genericui-placeholder-active"))
+        assertEquals("loaded", rawWebImage.nativeWidget.getAttribute("data-load-state"))
+        assertEquals("12", rawWebImage.nativeWidget.getAttribute("data-natural-width"))
+        assertEquals("8", rawWebImage.nativeWidget.getAttribute("data-natural-height"))
+
+        val directSrc = rawWebImage.nativeWidget.getAttribute("src").orEmpty()
+        assertTrue(directSrc.startsWith("data:image/png;base64,"), "Expected data:image/png;base64,... but got $directSrc")
+        val memoryUri = rawWebImage.getSourceUrl().orEmpty()
+        assertTrue(memoryUri.startsWith("memory://imagebuffer/12x8@"))
+        assertEquals(buffer, ImageLoader.resolveMemoryBuffer(memoryUri))
+
+        // Clearing buffer removes attributes cleanly
+        rawWebImage.setImageBuffer(null)
+        assertEquals("", rawWebImage.getSourceUrl())
+        assertNull(rawWebImage.nativeWidget.getAttribute("src"))
+        assertNull(rawWebImage.nativeWidget.getAttribute("data-load-state"))
+        assertNull(rawWebImage.nativeWidget.getAttribute("data-natural-width"))
+        assertNull(rawWebImage.nativeWidget.getAttribute("data-natural-height"))
+
+        // Setting sourceUrl to a registered memory:// URI resolves directly via setImageBuffer
+        ImageLoader.registerMemoryBuffer(memoryUri, buffer)
+        rawWebImage.setSourceUrl(memoryUri)
+        assertTrue(rawWebImage.nativeWidget.getAttribute("src").orEmpty().startsWith("data:image/png;base64,"))
+        assertEquals("loaded", rawWebImage.nativeWidget.getAttribute("data-load-state"))
+
+        // 2. ImageView.setImageBuffer(buffer) + BookContainer + BookPage on :web
+        val window = Window("Book Print Preview Test")
+        val book = BookContainer(
+            pageSize = PrintPageSize.A4,
+            orientation = PrintPageOrientation.PORTRAIT,
+            marginMm = 10f,
+            documentTitle = "Sample Printable Book"
+        )
+        val pageImageView = ImageView()
+        pageImageView.setImageBuffer(buffer)
+        val page1 = book.addPage("Page 1") {
+            addChild(pageImageView)
+        }
+        window.addChild(book)
+        window.show(factory)
+
+        val webPageImage = pageImageView.nativeImpl as WebImageImpl
+        val pageImgSrc = webPageImage.nativeWidget.getAttribute("src").orEmpty()
+        assertTrue(pageImgSrc.startsWith("data:image/png;base64,"), "Expected page ImageView img.src to be data:image/png;base64,... but got $pageImgSrc")
+        assertEquals("loaded", webPageImage.nativeWidget.getAttribute("data-load-state"))
+        assertEquals("12", webPageImage.nativeWidget.getAttribute("data-natural-width"))
+        assertEquals("8", webPageImage.nativeWidget.getAttribute("data-natural-height"))
+
+        val webBook = book.nativeImpl as WebBookContainerImpl
+        val iframeCss = webBook.nativeWidget.getAttribute("data-iframe-css").orEmpty()
+        assertTrue(
+            iframeCss.contains(
+                """.book-page img {
+    max-width: 100%;
+    width: 100%;
+    height: auto;
+    display: block;
+}"""
+            )
+        )
+        assertTrue(iframeCss.contains("@media print"))
+        assertEquals(1, webBook.nativeWidget.children.size)
+        val pageDom = (page1.nativeImpl as WebBaseNativeImpl).nativeWidget
+        assertEquals(pageDom, webBook.nativeWidget.children.first())
+        assertTrue(pageDom.children.contains(webPageImage.nativeWidget))
     }
 }

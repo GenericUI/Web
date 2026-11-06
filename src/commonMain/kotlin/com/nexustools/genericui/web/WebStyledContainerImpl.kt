@@ -73,5 +73,14 @@ class WebStyledContainerImpl(
                 "0px 2px ${visuals.boxShadowBlurPx}px ${visuals.boxShadowColor.toCssRgbaString()}"
             )
         }
+        val backdropCss = visuals.backdropFilter?.toCssString()
+            ?: visuals.backdropBlurPx?.takeIf { it > 0f }?.let { "blur(${it}px)" }
+        if (backdropCss != null) {
+            nativeWidget.setStyle("backdrop-filter", backdropCss)
+            nativeWidget.setStyle("-webkit-backdrop-filter", backdropCss)
+        }
+        visuals.filter?.let {
+            nativeWidget.setStyle("filter", it.toCssString())
+        }
     }
 }

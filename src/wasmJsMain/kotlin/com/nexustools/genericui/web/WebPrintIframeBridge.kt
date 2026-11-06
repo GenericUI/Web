@@ -83,18 +83,44 @@ actual object WebPrintIframeBridge {
     ): String {
         val wMm = pageSize.widthMm(orientation)
         val hMm = pageSize.heightMm(orientation)
-        return "html,body{margin:0;padding:0;box-sizing:border-box;background:#ffffff;color:#000000;" +
-            "-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
-            "*{box-sizing:border-box}" +
-            ".book-page{width:${wMm}mm;min-height:${hMm}mm;padding:${marginMm}mm;margin:0 auto;" +
-            "background:#ffffff;color:#000000;position:relative;page-break-after:always;break-after:page}" +
-            ".book-page:last-child{page-break-after:auto;break-after:auto}" +
-            "canvas{width:100%;height:200%}" +
-            "@media print{@page{size:${pageSize.cssSize} ${orientation.cssOrientation};margin:${marginMm}mm}" +
-            "html,body{margin:0;padding:0;background:#ffffff}" +
-            ".book-page{margin:0;box-shadow:none;width:${wMm}mm;height:${hMm}mm;page-break-after:always;break-after:page}" +
-            ".book-page:last-child{page-break-after:auto;break-after:auto}" +
-            "canvas{width:${wMm}mm;height:${hMm}mm}}"
+        return """
+            @page { size: ${wMm}mm ${hMm}mm; margin: ${marginMm}mm; }
+            * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            html, body { margin: 0; padding: 0; width: 100%; background: transparent; }
+            .book-page {
+                width: 100%;
+                max-width: 100%;
+                margin: 0 auto 16px auto;
+                padding: 0;
+                background: #ffffff;
+                color: #000000;
+                position: relative;
+                page-break-after: always;
+                break-after: page;
+                overflow: hidden;
+            }
+            .book-page:last-child {
+                margin-bottom: 0;
+                page-break-after: auto;
+                break-after: auto;
+            }
+            .book-page img {
+                max-width: 100%;
+                width: 100%;
+                height: auto;
+                display: block;
+            }
+            @media print {
+                html, body { background: #ffffff; }
+                .book-page {
+                    width: ${wMm}mm;
+                    min-height: ${hMm}mm;
+                    margin: 0 auto;
+                    padding: ${marginMm}mm;
+                    box-shadow: none !important;
+                }
+            }
+        """.trimIndent()
     }
 
     actual fun syncIframeDocument(
@@ -106,14 +132,43 @@ actual object WebPrintIframeBridge {
     ) {
         val css = buildIframeStylesheet(pageSize, orientation, marginMm)
         iframeElement.setAttribute("data-iframe-css", css)
+        if (iframeElement.getAttribute("title").isNullOrBlank()) {
+            iframeElement.setAttribute("title", documentTitle)
+        }
         if (!WebBrowserDomBridge.isBrowserEnvironment) return
+        syncMountedBookIframe(iframeElement, documentTitle)
+    }
 
+    actual fun syncMountedSubtreeIframes(rootElement: WebDomElement) {
+        if (!WebBrowserDomBridge.isBrowserEnvironment) return
+        if (rootElement.tagName.equals("iframe", ignoreCase = true) &&
+            (rootElement.hasClass("book-container") || rootElement.getAttribute("data-iframe-css") != null)
+        ) {
+            syncMountedBookIframe(rootElement)
+        }
+        for (child in rootElement.children) {
+            syncMountedSubtreeIframes(child)
+        }
+    }
+
+    private fun syncMountedBookIframe(
+        iframeElement: WebDomElement,
+        explicitTitle: String? = null
+    ) {
+        if (!WebBrowserDomBridge.isBrowserEnvironment) return
         val iframePeer = iframeElement.browserPeer as? JsAny ?: return
         val applyToIframe = {
-            val ready = wasmPrepareIframeDoc(iframePeer, documentTitle, css)
+            for (pageElement in iframeElement.children) {
+                WebBrowserDomBridge.syncElementTree(pageElement)
+            }
+            val css = iframeElement.getAttribute("data-iframe-css") ?: ""
+            val resolvedTitle = explicitTitle
+                ?: iframeElement.getAttribute("title")
+                ?: "Document"
+            val ready = wasmPrepareIframeDoc(iframePeer, resolvedTitle, css)
             if (ready) {
-                for (child in iframeElement.children) {
-                    val childPeer = child.browserPeer as? JsAny ?: continue
+                for (pageElement in iframeElement.children) {
+                    val childPeer = pageElement.browserPeer as? JsAny ?: continue
                     wasmAppendChildToIframeBody(iframePeer, childPeer)
                 }
             }
@@ -126,7 +181,7 @@ actual object WebPrintIframeBridge {
             }
         }
         wasmBindIframeLoadOnce(iframePeer) {
-            applyToIframe()
+            syncMountedBookIframe(iframeElement)
         }
     }
 

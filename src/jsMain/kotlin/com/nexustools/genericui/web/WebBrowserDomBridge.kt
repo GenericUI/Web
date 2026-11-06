@@ -5,6 +5,7 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.res.DataUrlCodec
 
 actual object WebBrowserDomBridge {
@@ -16,12 +17,15 @@ actual object WebBrowserDomBridge {
         if (!isBrowserEnvironment) return
         val doc: dynamic = js("document")
         val peer: dynamic = doc.createElement(element.tagName)
+        peer.__genericUiModel = element
         element.browserPeer = peer
+        ensurePopupCaptureListenersInstalled()
         attachInteractiveListeners(element, peer)
     }
 
     actual fun bindApplicationRoot(element: WebDomElement) {
         if (!isBrowserEnvironment) return
+        ensurePopupCaptureListenersInstalled()
         val doc: dynamic = js("document")
         val attachToDocument = {
             // Remove any legacy standalone .loader element directly inside body outside genericui:app
@@ -44,6 +48,7 @@ actual object WebBrowserDomBridge {
                         host.appendChild(oldPeer.firstChild)
                     }
                 }
+                host.__genericUiModel = element
                 element.browserPeer = host
                 if (host.parentNode == null && doc.body != null) {
                     doc.body.appendChild(host)
@@ -62,25 +67,140 @@ actual object WebBrowserDomBridge {
 
     actual fun syncElementTree(element: WebDomElement) {
         if (!isBrowserEnvironment) return
-        val parentPeer: dynamic = resolveContainerTarget(element) ?: return
-        for ((index, child) in element.children.withIndex()) {
-            val childPeer: dynamic = child.browserPeer ?: continue
-            val currentAtIdx: dynamic = parentPeer.children?.item(index)
-            if (currentAtIdx !== childPeer) {
-                if (currentAtIdx != null) {
-                    parentPeer.insertBefore(childPeer, currentAtIdx)
-                } else {
-                    parentPeer.appendChild(childPeer)
+        syncElementTreeNodesRecursive(element)
+        WebPrintIframeBridge.syncMountedSubtreeIframes(element)
+    }
+
+    private fun syncElementTreeNodesRecursive(element: WebDomElement) {
+        val parentPeer: dynamic = resolveContainerTarget(element)
+        if (parentPeer != null) {
+            for ((index, child) in element.children.withIndex()) {
+                val childPeer: dynamic = child.browserPeer ?: continue
+                val currentAtIdx: dynamic = parentPeer.children?.item(index)
+                if (currentAtIdx !== childPeer) {
+                    if (currentAtIdx != null) {
+                        parentPeer.insertBefore(childPeer, currentAtIdx)
+                    } else {
+                        parentPeer.appendChild(childPeer)
+                    }
                 }
             }
         }
+        for (child in element.children) {
+            syncElementTreeNodesRecursive(child)
+        }
+    }
+
+    private fun findNearestWebDomElement(target: dynamic): WebDomElement? {
+        var cur: dynamic = target
+        while (cur != null) {
+            val model = cur.__genericUiModel as? WebDomElement
+            if (model != null) return model
+            cur = cur.parentElement ?: cur.parentNode
+        }
+        return null
+    }
+
+    private fun isEditableDomTarget(el: dynamic): Boolean {
+        if (el == null) return false
+        if ((el.isContentEditable as? Boolean) == true) return true
+        val rawTag = (el.tagName as? String)?.lowercase() ?: return false
+        if (rawTag == "textarea" || rawTag == "select") return true
+        if (rawTag == "input") {
+            val rawType = ((el.getAttribute?.invoke("type") as? String) ?: (el.type as? String) ?: "text").lowercase()
+            return rawType != "button" &&
+                rawType != "checkbox" &&
+                rawType != "radio" &&
+                rawType != "range" &&
+                rawType != "submit" &&
+                rawType != "reset" &&
+                rawType != "file" &&
+                rawType != "color" &&
+                rawType != "image"
+        }
+        return false
+    }
+
+    private var popupCaptureListenersInstalled: Boolean = false
+
+    private fun ensurePopupCaptureListenersInstalled() {
+        if (popupCaptureListenersInstalled || !isBrowserEnvironment) return
+        popupCaptureListenersInstalled = true
+        val win: dynamic = js("window")
+        val stopEvent: (dynamic) -> Unit = { ev ->
+            if (ev != null) {
+                if (js("typeof ev.preventDefault === 'function'") as Boolean) ev.preventDefault()
+                if (js("typeof ev.stopPropagation === 'function'") as Boolean) ev.stopPropagation()
+                if (js("typeof ev.stopImmediatePropagation === 'function'") as Boolean) ev.stopImmediatePropagation()
+            }
+        }
+        val onCaptureDown: (dynamic) -> Unit = { ev ->
+            val cx = (ev?.clientX as? Number)?.toFloat()
+                ?: (ev?.touches?.item(0)?.clientX as? Number)?.toFloat()
+                ?: Float.NaN
+            val cy = (ev?.clientY as? Number)?.toFloat()
+                ?: (ev?.touches?.item(0)?.clientY as? Number)?.toFloat()
+                ?: Float.NaN
+            val originModel = findNearestWebDomElement(ev?.target)
+            if (WebDomElement.interceptPopupPointerDown(cx, cy, originModel)) {
+                stopEvent(ev)
+            }
+        }
+        val onCaptureUp: (dynamic) -> Unit = { ev ->
+            val cx = (ev?.clientX as? Number)?.toFloat() ?: Float.NaN
+            val cy = (ev?.clientY as? Number)?.toFloat() ?: Float.NaN
+            val originModel = findNearestWebDomElement(ev?.target)
+            if (WebDomElement.interceptPopupPointerUp(cx, cy, originModel)) {
+                stopEvent(ev)
+            }
+        }
+        val onCaptureClick: (dynamic) -> Unit = { ev ->
+            val cx = (ev?.clientX as? Number)?.toFloat() ?: Float.NaN
+            val cy = (ev?.clientY as? Number)?.toFloat() ?: Float.NaN
+            val originModel = findNearestWebDomElement(ev?.target)
+            if (WebDomElement.interceptPopupClick(cx, cy, originModel)) {
+                stopEvent(ev)
+            }
+        }
+        win.addEventListener("pointerdown", onCaptureDown, true)
+        win.addEventListener("mousedown", onCaptureDown, true)
+        win.addEventListener("touchstart", onCaptureDown, true)
+        win.addEventListener("contextmenu", onCaptureDown, true)
+        win.addEventListener("pointerup", onCaptureUp, true)
+        win.addEventListener("mouseup", onCaptureUp, true)
+        win.addEventListener("click", onCaptureClick, true)
     }
 
     private fun attachInteractiveListeners(model: WebDomElement, peer: dynamic) {
-        peer.addEventListener("click", { _: dynamic ->
+        peer.addEventListener("click", { ev: dynamic ->
             if (!model.disabled) {
-                model.dispatchFromBrowser("click", null)
+                val originModel = findNearestWebDomElement(ev?.target) ?: model
+                if (originModel !== model && ev?.__genericUiClickHandled == true) {
+                    return@addEventListener
+                }
+                val isModalContainer = model.tagName.equals("genericui:dialogwindow", ignoreCase = true) ||
+                    model.tagName.equals("genericui:modal", ignoreCase = true) ||
+                    model.classList.contains("modal") ||
+                    model.enumClasses.contains("modal")
+                if (!isModalContainer || ev?.target === peer || originModel === model) {
+                    model.dispatchFromBrowser("click", originModel)
+                    if (ev != null && model.hasActiveClickListener()) {
+                        ev.__genericUiClickHandled = true
+                    }
+                }
             }
+        })
+        peer.addEventListener("focus", { _: dynamic ->
+            if (isEditableDomTarget(peer)) {
+                com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = true
+            }
+            model.dispatchFromBrowser("focus", null)
+        })
+        peer.addEventListener("blur", { _: dynamic ->
+            if (isEditableDomTarget(peer)) {
+                com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = false
+            }
+            model.dispatchFromBrowser("blur", null)
         })
         peer.addEventListener("dblclick", { _: dynamic ->
             if (!model.disabled) {
@@ -333,6 +453,9 @@ actual object WebBrowserDomBridge {
         val alt = (ev.altKey as? Boolean) ?: false
         val meta = (ev.metaKey as? Boolean) ?: false
         val repeat = (ev.repeat as? Boolean) ?: false
+        val doc: dynamic = if (isBrowserEnvironment) js("document") else null
+        val isEditable = isEditableDomTarget(ev?.target) || isEditableDomTarget(doc?.activeElement)
+        com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
         return KeyEvent(
             key = key,
             code = code,
@@ -340,7 +463,8 @@ actual object WebBrowserDomBridge {
             ctrlKey = ctrl,
             altKey = alt,
             metaKey = meta,
-            isRepeat = repeat
+            isRepeat = repeat,
+            isTargetTextInput = isEditable
         )
     }
 
@@ -461,26 +585,32 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun appendChild(parent: WebDomElement, child: WebDomElement) {
-        val parentPeer: dynamic = resolveContainerTarget(parent) ?: return
-        val childPeer: dynamic = child.browserPeer ?: return
-        parentPeer.appendChild(childPeer)
+        val parentPeer: dynamic = resolveContainerTarget(parent)
+        val childPeer: dynamic = child.browserPeer
+        if (parentPeer != null && childPeer != null) {
+            parentPeer.appendChild(childPeer)
+        }
+        WebPrintIframeBridge.syncMountedSubtreeIframes(child)
     }
 
     actual fun insertChildAt(parent: WebDomElement, index: Int, child: WebDomElement) {
-        val parentPeer: dynamic = resolveContainerTarget(parent) ?: return
-        val childPeer: dynamic = child.browserPeer ?: return
-        val children: dynamic = parentPeer.children
-        val len = (children?.length as? Number)?.toInt() ?: 0
-        if (index < 0 || index >= len) {
-            parentPeer.appendChild(childPeer)
-        } else {
-            val refNode: dynamic = children[index]
-            if (refNode != null) {
-                parentPeer.insertBefore(childPeer, refNode)
-            } else {
+        val parentPeer: dynamic = resolveContainerTarget(parent)
+        val childPeer: dynamic = child.browserPeer
+        if (parentPeer != null && childPeer != null) {
+            val children: dynamic = parentPeer.children
+            val len = (children?.length as? Number)?.toInt() ?: 0
+            if (index < 0 || index >= len) {
                 parentPeer.appendChild(childPeer)
+            } else {
+                val refNode: dynamic = children[index]
+                if (refNode != null) {
+                    parentPeer.insertBefore(childPeer, refNode)
+                } else {
+                    parentPeer.appendChild(childPeer)
+                }
             }
         }
+        WebPrintIframeBridge.syncMountedSubtreeIframes(child)
     }
 
     actual fun removeChild(parent: WebDomElement, child: WebDomElement) {
@@ -670,6 +800,31 @@ actual object WebBrowserDomBridge {
             win.setTimeout({
                 block()
             }, 0)
+        }
+    }
+
+    actual fun requestAnimationFrame(callback: () -> Unit): Int {
+        if (!isBrowserEnvironment) return setTimeoutId(16, callback)
+        val win: dynamic = js("window")
+        if (js("typeof win.requestAnimationFrame === 'function'") as Boolean) {
+            return (win.requestAnimationFrame({ _: dynamic ->
+                callback()
+            }) as? Number)?.toInt() ?: -1
+        }
+        return setTimeoutId(16, callback)
+    }
+
+    actual fun cancelAnimationFrame(handle: Int) {
+        if (handle < 0) return
+        if (!isBrowserEnvironment) {
+            clearTimeoutId(handle)
+            return
+        }
+        val win: dynamic = js("window")
+        if (js("typeof win.cancelAnimationFrame === 'function'") as Boolean) {
+            win.cancelAnimationFrame(handle)
+        } else {
+            clearTimeoutId(handle)
         }
     }
 
@@ -1120,6 +1275,134 @@ actual object WebBrowserDomBridge {
         }
     }
 
+    actual fun surfacePeerToDataUrl(peer: Any?, mimeType: String): String? {
+        if (!isBrowserEnvironment || peer == null) return null
+        return runCatching {
+            val rawPeer: dynamic = if (peer is WebDomElement) peer.browserPeer else peer
+            if (rawPeer == null) return@runCatching null
+            if (jsTypeOf(rawPeer.toDataURL) == "function") {
+                val url = rawPeer.toDataURL(mimeType) as? String
+                if (!url.isNullOrBlank() && url.startsWith("data:")) {
+                    return@runCatching url
+                }
+            }
+            val natW = (rawPeer.naturalWidth as? Number)?.toInt() ?: 0
+            val natH = (rawPeer.naturalHeight as? Number)?.toInt() ?: 0
+            if (natW > 0 && natH > 0) {
+                val doc: dynamic = js("document")
+                val canvas: dynamic = doc.createElement("canvas")
+                canvas.width = natW
+                canvas.height = natH
+                val ctx: dynamic = canvas.getContext("2d") ?: return@runCatching null
+                ctx.drawImage(rawPeer, 0, 0, natW, natH)
+                val url = canvas.toDataURL(mimeType) as? String
+                if (!url.isNullOrBlank() && url.startsWith("data:")) {
+                    return@runCatching url
+                }
+            }
+            null
+        }.getOrNull()
+    }
+
+    private fun findJsPreloadedEntryByBytes(encodedBytes: ByteArray): dynamic {
+        if (encodedBytes.isEmpty()) return null
+        val store: dynamic = getJsPreloadedStore() ?: return null
+        val keys: Array<String> = runCatching {
+            val obj: dynamic = js("Object")
+            obj.keys(store) as Array<String>
+        }.getOrNull() ?: return null
+        val targetLen = encodedBytes.size
+        val headCount = minOf(16, targetLen)
+        val tailStart = (targetLen - 16).coerceAtLeast(0)
+        for (key in keys) {
+            val rec: dynamic = store[key] ?: continue
+            val rawBytes: dynamic = rec.bytes ?: continue
+            val len = (rawBytes.length as? Number)?.toInt()
+                ?: (rawBytes.byteLength as? Number)?.toInt()
+                ?: -1
+            if (len != targetLen) continue
+            var matches = true
+            for (i in 0 until headCount) {
+                val b = ((rawBytes[i] as Number).toInt() and 0xFF).toByte()
+                if (b != encodedBytes[i]) {
+                    matches = false
+                    break
+                }
+            }
+            if (!matches) continue
+            for (i in tailStart until targetLen) {
+                val b = ((rawBytes[i] as Number).toInt() and 0xFF).toByte()
+                if (b != encodedBytes[i]) {
+                    matches = false
+                    break
+                }
+            }
+            if (matches) return rec
+        }
+        return null
+    }
+
+    actual fun decodePreloadedBrowserImage(
+        uriOrKey: String?,
+        encodedBytes: ByteArray?,
+        targetWidth: Int?,
+        targetHeight: Int?
+    ): ImageBuffer? {
+        if (!isBrowserEnvironment) return null
+        return runCatching {
+            var record: dynamic = if (!uriOrKey.isNullOrBlank()) {
+                findJsPreloadedEntry(uriOrKey)
+            } else {
+                null
+            }
+            if (record == null && encodedBytes != null && encodedBytes.isNotEmpty()) {
+                record = findJsPreloadedEntryByBytes(encodedBytes)
+            }
+            if (record == null) return@runCatching null
+
+            var img: dynamic = record.imageElement
+            if ((img == null || (img.complete as? Boolean) != true || (((img.naturalWidth as? Number)?.toInt() ?: 0) <= 0)) &&
+                (record.dataUrl as? String)?.startsWith("data:image/") == true &&
+                (js("typeof Image === 'function'") as Boolean)
+            ) {
+                val createdImg: dynamic = js("new Image()")
+                createdImg.src = record.dataUrl
+                record.imageElement = createdImg
+                img = createdImg
+            }
+            if (img == null || (img.complete as? Boolean) != true) return@runCatching null
+            val natW = (img.naturalWidth as? Number)?.toInt() ?: 0
+            val natH = (img.naturalHeight as? Number)?.toInt() ?: 0
+            if (natW <= 0 || natH <= 0) return@runCatching null
+
+            val outW = (targetWidth ?: natW).coerceAtLeast(1)
+            val outH = (targetHeight ?: natH).coerceAtLeast(1)
+            val doc: dynamic = js("document")
+            val canvas: dynamic = doc.createElement("canvas")
+            canvas.width = outW
+            canvas.height = outH
+            val ctx: dynamic = canvas.getContext("2d") ?: return@runCatching null
+            ctx.drawImage(img, 0, 0, outW, outH)
+
+            createLazyBrowserCanvasImageBuffer(
+                width = outW,
+                height = outH,
+                canvasPeer = canvas as Any,
+                toDataUrlFn = { mimeType ->
+                    runCatching {
+                        (canvas.toDataURL(mimeType) as? String)?.takeIf { it.startsWith("data:") }
+                    }.getOrNull()
+                },
+                readRgbaPixelsFn = {
+                    val imgData: dynamic = ctx.getImageData(0, 0, outW, outH)
+                    val data: dynamic = imgData.data
+                    val total = outW * outH * 4
+                    ByteArray(total) { idx -> ((data[idx] as Number).toInt() and 0xFF).toByte() }
+                }
+            )
+        }.getOrNull()
+    }
+
     actual fun requestElementFullscreen(element: WebDomElement?): Boolean {
         activeFullscreenElement = element
         if (!isBrowserEnvironment) return true
@@ -1243,6 +1526,14 @@ actual object WebBrowserDomBridge {
                 syncBufferedRanges(false)
                 element.dispatchFromBrowser("canplay", null)
             })
+            peer.addEventListener("loadeddata", { _: dynamic ->
+                syncBufferedRanges(false)
+                element.dispatchFromBrowser("loadeddata", null)
+            })
+            peer.addEventListener("seeked", { _: dynamic ->
+                syncBufferedRanges(false)
+                element.dispatchFromBrowser("seeked", null)
+            })
             peer.addEventListener("timeupdate", { _: dynamic ->
                 syncBufferedRanges(false)
                 val ct = (peer.currentTime as? Number)?.toDouble() ?: 0.0
@@ -1279,8 +1570,9 @@ actual object WebBrowserDomBridge {
     actual fun mediaCanPlayType(element: WebDomElement, mimeType: String): Boolean {
         if (!isBrowserEnvironment) return false
         return runCatching {
+            val tag = if (element.tagName.equals("audio", ignoreCase = true)) "audio" else "video"
             val peer: dynamic = element.browserPeer
-                ?: js("typeof document !== 'undefined' ? document.createElement('video') : null")
+                ?: js("typeof document !== 'undefined' ? document.createElement(tag) : null")
             if (peer != null && js("typeof peer.canPlayType === 'function'") as Boolean) {
                 val res = (peer.canPlayType(mimeType) as? String)?.trim()?.lowercase().orEmpty()
                 res == "probably" || res == "maybe"
@@ -1291,31 +1583,45 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun mediaLoad(element: WebDomElement, seekOffsetSeconds: Double): Boolean {
+        val preloadAttr = element.getAttribute("preload")?.trim()?.lowercase()
+        if (preloadAttr != "none") {
+            element.setAttribute("preload", preloadAttr ?: "auto")
+        }
         if (!isBrowserEnvironment) return false
         val peer: dynamic = element.browserPeer ?: return false
         return runCatching {
+            val peerPreload = ((peer.getAttribute?.invoke("preload") as? String) ?: (peer.preload as? String)).orEmpty().trim().lowercase()
+            if (peerPreload != "none") {
+                peer.preload = "auto"
+            }
             if (js("typeof peer.load === 'function'") as Boolean) {
                 peer.load()
             }
-            if (seekOffsetSeconds > 0.0) {
-                val applySeek = {
-                    runCatching { peer.currentTime = seekOffsetSeconds }
-                }
-                val readyState = (peer.readyState as? Number)?.toInt() ?: 0
-                if (readyState >= 1) {
-                    applySeek()
-                } else {
-                    var applied = false
-                    var listener: dynamic = null
-                    listener = { _: dynamic ->
-                        if (!applied) {
-                            applied = true
-                            peer.removeEventListener("loadedmetadata", listener)
-                            applySeek()
-                        }
+            val isVideo = element.tagName.equals("video", ignoreCase = true) ||
+                ((peer.tagName as? String)?.equals("video", ignoreCase = true) == true)
+            val applySeek = {
+                runCatching {
+                    if (seekOffsetSeconds > 0.0) {
+                        peer.currentTime = seekOffsetSeconds
+                    } else if (isVideo && (peer.paused as? Boolean) != false && peerPreload != "none") {
+                        peer.currentTime = 0.001
                     }
-                    peer.addEventListener("loadedmetadata", listener)
                 }
+            }
+            val readyState = (peer.readyState as? Number)?.toInt() ?: 0
+            if (readyState >= 1) {
+                applySeek()
+            } else {
+                var applied = false
+                var listener: dynamic = null
+                listener = { _: dynamic ->
+                    if (!applied) {
+                        applied = true
+                        peer.removeEventListener("loadedmetadata", listener)
+                        applySeek()
+                    }
+                }
+                peer.addEventListener("loadedmetadata", listener)
             }
             true
         }.getOrDefault(false)

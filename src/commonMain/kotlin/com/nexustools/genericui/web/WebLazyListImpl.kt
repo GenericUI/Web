@@ -328,16 +328,27 @@ class WebLazyListImpl : WebBaseContainerNativeImpl("genericui:lazylist", "lazy-l
     }
 
     override fun scrollToIndex(index: Int) {
-        if (totalItemCount <= 0) return
-        val clamped = index.coerceIn(0, totalItemCount - 1)
-        val targetOffset = (clamped * estimatedItemExtentPx).toDouble()
+        val clamped = if (totalItemCount > 0) index.coerceIn(0, totalItemCount - 1) else index.coerceAtLeast(0)
+        val contextIdx = (clamped - 1).coerceAtLeast(0)
+        val fromEstimatedScale = if (
+            WebBrowserDomBridge.isBrowserEnvironment &&
+            measuredAvgExtentPx > 1f &&
+            estimatedItemExtentPx > 0
+        ) {
+            measuredAvgExtentPx / estimatedItemExtentPx.toFloat()
+        } else {
+            1f
+        }
+        val targetOffset = (contextIdx * estimatedItemExtentPx * fromEstimatedScale).toDouble()
         if (orientation == Orientation.HORIZONTAL) {
             nativeWidget.scrollLeft = targetOffset
         } else {
             nativeWidget.scrollTop = targetOffset
         }
-        explicitViewportWindowProvided = false
-        recomputeVisibleWindow()
+        if (totalItemCount > 0) {
+            explicitViewportWindowProvided = false
+            recomputeVisibleWindow()
+        }
     }
 
     fun recomputeVisibleWindow() {

@@ -55,9 +55,15 @@ class WebContextMenuImpl :
         nativeWidget.style["top"] = "${y}px"
         nativeWidget.style["display"] = "block"
         nativeWidget.style["z-index"] = "2050"
+        com.nexustools.genericui.event.PopupMouseCaptureManager.registerNativePopup(
+            nativePopup = this,
+            hitTester = { _, _, target -> nativeWidget.containsDomElement(target) },
+            onDismiss = { hide() }
+        )
     }
 
     override fun hide() {
+        com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
         for (child in nativeWidget.children) {
             WebMenuImpl.findMenuForDom(child)?.close()
         }
@@ -66,6 +72,7 @@ class WebContextMenuImpl :
     }
 
     override fun dispose() {
+        com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
         contextMenuRegistry.remove(nativeWidget)
         super.dispose()
     }

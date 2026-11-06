@@ -43,20 +43,70 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
                 colorSpace = buf.colorSpace
             )
         }
-        val bytes = resolveImmediateBytesWithoutCaching(source) ?: return null
-        if (bytes.isEmpty()) return null
-        return when (ImageFormat.detectFromHeader(bytes)) {
-            ImageFormat.JPEG -> LibJpegCodec.probeJpegMetadata(bytes)
-            ImageFormat.PNG -> LibPngCodec.probePngMetadata(bytes)
-            ImageFormat.WEBP -> LibWebpCodec.probeWebpMetadata(bytes)
-            else -> null
+        val bytes = resolveImmediateBytesWithoutCaching(source)
+        if (bytes != null && bytes.isNotEmpty()) {
+            val detected = ImageFormat.detectFromHeader(bytes)
+            when (detected) {
+                ImageFormat.JPEG -> return LibJpegCodec.probeJpegMetadata(bytes)
+                ImageFormat.PNG -> return LibPngCodec.probePngMetadata(bytes)
+                ImageFormat.WEBP -> return LibWebpCodec.probeWebpMetadata(bytes)
+                else -> {}
+            }
+            if (WebBrowserDomBridge.isBrowserEnvironment) {
+                WebBrowserDomBridge.decodePreloadedBrowserImage(
+                    uriOrKey = source.uriOrPath,
+                    encodedBytes = bytes,
+                    targetWidth = null,
+                    targetHeight = null
+                )?.let { preloaded ->
+                    return ImageMetadata(
+                        width = preloaded.width,
+                        height = preloaded.height,
+                        format = detected,
+                        pixelFormat = preloaded.pixelFormat,
+                        colorSpace = preloaded.colorSpace
+                    )
+                }
+            }
+        } else if (WebBrowserDomBridge.isBrowserEnvironment) {
+            WebBrowserDomBridge.decodePreloadedBrowserImage(
+                uriOrKey = source.uriOrPath,
+                encodedBytes = source.encodedBytes,
+                targetWidth = null,
+                targetHeight = null
+            )?.let { preloaded ->
+                return ImageMetadata(
+                    width = preloaded.width,
+                    height = preloaded.height,
+                    format = source.formatHint,
+                    pixelFormat = preloaded.pixelFormat,
+                    colorSpace = preloaded.colorSpace
+                )
+            }
         }
+        return null
     }
 
     override fun decode(source: ImageSource, options: ImageDecodeOptions): ImageBuffer? {
         source.memoryBuffer?.let { return it.copy() }
+        if (WebBrowserDomBridge.isBrowserEnvironment) {
+            WebBrowserDomBridge.decodePreloadedBrowserImage(
+                uriOrKey = source.uriOrPath,
+                encodedBytes = source.encodedBytes,
+                targetWidth = options.targetWidth,
+                targetHeight = options.targetHeight
+            )?.let { return it }
+        }
         val bytes = resolveImmediateBytesWithoutCaching(source) ?: return null
         if (bytes.isEmpty()) return null
+        if (WebBrowserDomBridge.isBrowserEnvironment && source.encodedBytes == null) {
+            WebBrowserDomBridge.decodePreloadedBrowserImage(
+                uriOrKey = source.uriOrPath,
+                encodedBytes = bytes,
+                targetWidth = options.targetWidth,
+                targetHeight = options.targetHeight
+            )?.let { return it }
+        }
         return when (ImageFormat.detectFromHeader(bytes)) {
             ImageFormat.JPEG -> LibJpegCodec.decode(bytes)
             ImageFormat.PNG -> LibPngCodec.decode(bytes)

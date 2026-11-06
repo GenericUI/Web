@@ -104,9 +104,19 @@ class WebMenuImpl :
         toggleButton.setAttribute("aria-expanded", "true")
         dropdownMenu.classList.add("show")
         dropdownMenu.style["display"] = "block"
+        if (!nativeWidget.classList.contains("genericui-submenu")) {
+            com.nexustools.genericui.event.PopupMouseCaptureManager.registerNativePopup(
+                nativePopup = this,
+                hitTester = { _, _, target ->
+                    nativeWidget.containsDomElement(target) || dropdownMenu.containsDomElement(target)
+                },
+                onDismiss = { close() }
+            )
+        }
     }
 
     fun close() {
+        com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
         for (child in dropdownMenu.children) {
             menuRegistry[child]?.close()
         }
@@ -156,6 +166,7 @@ class WebMenuImpl :
     }
 
     override fun dispose() {
+        com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
         menuRegistry.remove(nativeWidget)
         dropdownMenuRegistry.remove(dropdownMenu)
         super.dispose()

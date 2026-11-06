@@ -191,6 +191,15 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
             if (contentSlot.parent == null) modalBody.appendChild(contentSlot)
             if (modalBody.parent == null) modalContent.appendChild(modalBody)
             if (modalDialog.parent == null) modalWidgetAttach()
+            nativeWidget.addEventListener("click") { ev ->
+                val targetDom = ev as? WebDomElement
+                val clickedOutsideDialog = targetDom == null ||
+                    targetDom === nativeWidget ||
+                    !modalDialog.containsDomElement(targetDom)
+                if (isNonMainModalWindow && alwaysOnTopOfOwnerFlag && clickedOutsideDialog) {
+                    closeWindow()
+                }
+            }
         }
         val w = windowSize.width.coerceAtLeast(320)
         val h = windowSize.height.coerceAtLeast(220)
@@ -211,9 +220,13 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         nativeWidget.setStyle("justify-content", "center", true)
         if (alwaysOnTopOfOwnerFlag) {
             nativeWidget.setStyle("background-color", "rgba(0, 0, 0, 0.55)", true)
+            nativeWidget.setStyle("-webkit-backdrop-filter", "blur(6px)", true)
+            nativeWidget.setStyle("backdrop-filter", "blur(6px)", true)
             nativeWidget.setStyle("pointer-events", "auto", true)
         } else {
             nativeWidget.setStyle("background-color", "rgba(0, 0, 0, 0.35)", true)
+            nativeWidget.setStyle("-webkit-backdrop-filter", "blur(6px)", true)
+            nativeWidget.setStyle("backdrop-filter", "blur(6px)", true)
             nativeWidget.setStyle("pointer-events", "auto", true)
         }
     }

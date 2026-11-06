@@ -1,10 +1,14 @@
 package com.nexustools.genericui.web
 
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.image.ImageColorSpace
+import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.nativeimpl.net.WebSocketNativeImpl
 import com.nexustools.genericui.net.http.HttpRequest
 import com.nexustools.genericui.net.http.HttpResponse
 import com.nexustools.genericui.res.DataUrlCodec
+import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.util.db.DatabaseRecord
 import com.nexustools.genericui.util.db.DatabaseTableSchema
 import com.nexustools.genericui.util.db.DatabaseValue
@@ -66,6 +70,8 @@ expect object WebBrowserDomBridge {
         onKeyUp: (com.nexustools.genericui.event.KeyEvent) -> Unit
     )
     fun schedulePostLayoutPass(block: () -> Unit)
+    fun requestAnimationFrame(callback: () -> Unit): Int
+    fun cancelAnimationFrame(handle: Int)
     fun scheduleTimeout(delayMs: Int, block: () -> Unit): Boolean
     fun setTimeoutId(delayMs: Int, block: () -> Unit): Int
     fun setIntervalId(intervalMs: Int, block: () -> Unit): Int
@@ -108,6 +114,14 @@ expect object WebBrowserDomBridge {
     fun hasPreloadedResource(key: String): Boolean
     fun registerPreloadedResource(key: String, mimeType: String, bytes: ByteArray, text: String? = null)
     fun clearPreloadedResources()
+
+    fun surfacePeerToDataUrl(peer: Any?, mimeType: String = "image/png"): String?
+    fun decodePreloadedBrowserImage(
+        uriOrKey: String?,
+        encodedBytes: ByteArray?,
+        targetWidth: Int?,
+        targetHeight: Int?
+    ): ImageBuffer?
 
     fun requestElementFullscreen(element: WebDomElement?): Boolean
     fun exitFullscreen(): Boolean
@@ -314,6 +328,8 @@ internal fun expandPreloadedResourceLookupKeys(rawKey: String): List<String> {
         keys.add(clean)
         keys.add(clean.lowercase())
         keys.add("res://$clean")
+        keys.add("res/$clean")
+        keys.add("gui/$clean")
     }
 
     if (clean.endsWith(".scss", ignoreCase = true) || clean.endsWith(".sass", ignoreCase = true)) {
@@ -470,6 +486,96 @@ internal fun clearPreloadedResourcesInMemory() {
     preloadedBytesByKey.clear()
     preloadedTextsByKey.clear()
     preloadedMimeTypesByKey.clear()
+}
+
+internal fun createLazyBrowserCanvasImageBuffer(
+    width: Int,
+    height: Int,
+    canvasPeer: Any,
+    toDataUrlFn: (String) -> String?,
+    readRgbaPixelsFn: () -> ByteArray
+): ImageBuffer {
+    val outW = width.coerceAtLeast(1)
+    val outH = height.coerceAtLeast(1)
+    return object : ImageBuffer(
+        width = outW,
+        height = outH,
+        pixelFormat = PixelFormat.RGBA_8888,
+        colorSpace = ImageColorSpace.SRGB,
+        bytes = ByteArray(0)
+    ) {
+        private var lazyBytesLoaded: Boolean = false
+        private var pixelsMutated: Boolean = false
+
+        private fun ensurePixelsLoaded() {
+            if (!lazyBytesLoaded) {
+                lazyBytesLoaded = true
+                val expectedSize = outW * outH * 4
+                val raw = runCatching { readRgbaPixelsFn() }.getOrNull()
+                val loadedBytes = if (raw != null && raw.size == expectedSize) {
+                    raw
+                } else if (raw != null) {
+                    ByteArray(expectedSize) { idx -> if (idx < raw.size) raw[idx] else 0 }
+                } else {
+                    ByteArray(expectedSize)
+                }
+                updateDimensionsAndBytes(outW, outH, loadedBytes)
+            }
+        }
+
+        override val nativeSurfacePeer: Any?
+            get() = if (pixelsMutated) null else canvasPeer
+
+        override fun toDataUrl(mimeType: String): String? =
+            if (pixelsMutated) null else toDataUrlFn(mimeType)
+
+        override var bytes: ByteArray
+            get() {
+                ensurePixelsLoaded()
+                return super.bytes
+            }
+            protected set(value) {
+                lazyBytesLoaded = true
+                super.bytes = value
+            }
+
+        override fun getPixel(x: Int, y: Int): RgbaColor {
+            ensurePixelsLoaded()
+            return super.getPixel(x, y)
+        }
+
+        override fun setPixel(x: Int, y: Int, color: RgbaColor) {
+            ensurePixelsLoaded()
+            pixelsMutated = true
+            super.setPixel(x, y, color)
+        }
+
+        override fun fill(color: RgbaColor): ImageBuffer {
+            ensurePixelsLoaded()
+            pixelsMutated = true
+            return super.fill(color)
+        }
+
+        override fun copy(): ImageBuffer {
+            ensurePixelsLoaded()
+            if (pixelsMutated) {
+                return super.copy()
+            }
+            val copiedBytes = super.bytes.copyOf()
+            return createLazyBrowserCanvasImageBuffer(
+                width = width,
+                height = height,
+                canvasPeer = canvasPeer,
+                toDataUrlFn = toDataUrlFn,
+                readRgbaPixelsFn = { copiedBytes }
+            )
+        }
+
+        override fun toRgba8888(): ImageBuffer {
+            ensurePixelsLoaded()
+            return if (pixelsMutated) super.toRgba8888() else copy()
+        }
+    }
 }
 
 /**

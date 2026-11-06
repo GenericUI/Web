@@ -186,5 +186,20 @@ class WebStyledButtonImpl(
         } else if (!focusedFlag && (focusVisualsState?.hasFocusRing == true || baseVisualsState.hasFocusRing)) {
             nativeWidget.setStyle("outline", "none")
         }
+        if (effective.boxShadowColor != null && (effective.boxShadowBlurPx ?: 0f) > 0f) {
+            nativeWidget.setStyle(
+                "box-shadow",
+                "0px 2px ${effective.boxShadowBlurPx}px ${effective.boxShadowColor.toCssRgbaString()}"
+            )
+        }
+        val backdropCss = effective.backdropFilter?.toCssString()
+            ?: effective.backdropBlurPx?.takeIf { it > 0f }?.let { "blur(${it}px)" }
+        if (backdropCss != null) {
+            nativeWidget.setStyle("backdrop-filter", backdropCss)
+            nativeWidget.setStyle("-webkit-backdrop-filter", backdropCss)
+        }
+        effective.filter?.let {
+            nativeWidget.setStyle("filter", it.toCssString())
+        }
     }
 }

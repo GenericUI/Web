@@ -3,13 +3,17 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.enums.ui.ObjectFit
 import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.ImageDecodeOptions
 import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.image.ImageSource
+import com.nexustools.genericui.image.codec.LibPngCodec
 import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
+import com.nexustools.genericui.res.DataUrlCodec
 import com.nexustools.genericui.style.color.ImageTintMode
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssFilter
+import kotlinx.coroutines.Job
 
 /**
  * Web implementation of [ImageNativeImpl] rendered as `<img>`.
@@ -24,7 +28,9 @@ class WebImageImpl : WebBaseNativeImpl("img"), ImageNativeImpl<WebDomElement> {
     private var objectFit: ObjectFit = ObjectFit.CONTAIN
     private var antialiasing: Boolean = true
     private var loadingState: Boolean = false
-    private var loadGeneration: Int = 0
+    private var activeLoadGeneration: Int = 0
+    private var activeLoadJob: Job? = null
+    private var retainedBuffer: ImageBuffer? = null
     private var tintColor: RgbaColor? = null
     private var tintMode: ImageTintMode = ImageTintMode.NONE
     private var cssFilter: CssFilter? = null
@@ -50,9 +56,21 @@ class WebImageImpl : WebBaseNativeImpl("img"), ImageNativeImpl<WebDomElement> {
     }
 
     override fun setSourceUrl(url: String?) {
+        val trimmed = url?.trim().orEmpty()
+        if (trimmed.startsWith("memory://", ignoreCase = true)) {
+            ImageLoader.resolveMemoryBuffer(trimmed)?.let {
+                setImageBuffer(it)
+                return
+            }
+        }
+
+        activeLoadJob?.cancel()
+        activeLoadJob = null
+        retainedBuffer = null
+
         val resolved = resolveResourceUrl(url)
         sourceUrl = resolved
-        val gen = ++loadGeneration
+        val gen = ++activeLoadGeneration
         if (resolved.isNullOrBlank()) {
             loadingState = false
             nativeWidget.removeAttribute("data-genericui-loading")
@@ -81,11 +99,11 @@ class WebImageImpl : WebBaseNativeImpl("img"), ImageNativeImpl<WebDomElement> {
             nativeWidget.removeAttribute("data-genericui-placeholder-active")
         }
 
-        ImageLoader.loadAsync(
+        activeLoadJob = ImageLoader.launchLoad(
             source = ImageSource.fromUrl(resolved),
             options = ImageDecodeOptions(antialiasing = antialiasing),
             onLoaded = {
-                if (gen == loadGeneration) {
+                if (gen == activeLoadGeneration) {
                     val wasLoading = loadingState
                     loadingState = false
                     nativeWidget.removeAttribute("data-genericui-loading")
@@ -97,7 +115,7 @@ class WebImageImpl : WebBaseNativeImpl("img"), ImageNativeImpl<WebDomElement> {
                 }
             },
             onError = {
-                if (gen == loadGeneration) {
+                if (gen == activeLoadGeneration) {
                     val wasLoading = loadingState
                     loadingState = false
                     nativeWidget.removeAttribute("data-genericui-loading")
@@ -109,20 +127,56 @@ class WebImageImpl : WebBaseNativeImpl("img"), ImageNativeImpl<WebDomElement> {
         )
     }
 
+    override fun setImageBuffer(buffer: ImageBuffer?) {
+        activeLoadGeneration++
+        activeLoadJob?.cancel()
+        activeLoadJob = null
+        retainedBuffer = buffer
+        if (buffer == null) {
+            loadingState = false
+            sourceUrl = ""
+            nativeWidget.removeAttribute("src")
+            nativeWidget.removeAttribute("data-genericui-loading")
+            nativeWidget.removeAttribute("data-genericui-placeholder-active")
+            nativeWidget.removeAttribute("data-load-state")
+            nativeWidget.removeAttribute("data-natural-width")
+            nativeWidget.removeAttribute("data-natural-height")
+            return
+        }
+
+        val memoryUri = "memory://imagebuffer/${buffer.width}x${buffer.height}@${buffer.hashCode()}"
+        ImageLoader.registerMemoryBuffer(memoryUri, buffer)
+        sourceUrl = memoryUri
+
+        loadingState = false
+        nativeWidget.removeAttribute("data-genericui-loading")
+        nativeWidget.removeAttribute("data-genericui-placeholder-active")
+        nativeWidget.setAttribute("data-load-state", "loaded")
+
+        val dataUrl = buffer.toDataUrl("image/png")
+            ?: WebBrowserDomBridge.surfacePeerToDataUrl(buffer.nativeSurfacePeer, "image/png")
+            ?: DataUrlCodec.encodeBytes(LibPngCodec.encode(buffer), "image/png")
+
+        nativeWidget.setAttribute("src", dataUrl)
+        nativeWidget.setAttribute("data-natural-width", buffer.width.toString())
+        nativeWidget.setAttribute("data-natural-height", buffer.height.toString())
+        onLoadCallback?.invoke()
+    }
+
     override fun getSourceUrl(): String? = sourceUrl
 
     override fun setPlaceholderUrl(url: String?) {
         placeholderUrl = resolveResourceUrl(url)
         if (!placeholderUrl.isNullOrBlank()) {
             nativeWidget.setAttribute("data-genericui-placeholder", placeholderUrl!!)
-            if (sourceUrl.isNullOrBlank() || loadingState) {
+            if ((sourceUrl.isNullOrBlank() && retainedBuffer == null) || loadingState) {
                 nativeWidget.setAttribute("src", placeholderUrl!!)
                 nativeWidget.setAttribute("data-genericui-placeholder-active", "true")
             }
         } else {
             nativeWidget.removeAttribute("data-genericui-placeholder")
             nativeWidget.removeAttribute("data-genericui-placeholder-active")
-            if (!sourceUrl.isNullOrBlank()) {
+            if (retainedBuffer == null && !sourceUrl.isNullOrBlank()) {
                 nativeWidget.setAttribute("src", sourceUrl!!)
             }
         }

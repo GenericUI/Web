@@ -10,6 +10,7 @@ package com.nexustools.genericui.web
  */
 class WebDomElement(val tagName: String) {
     internal var browserPeer: Any? = null
+    internal var ownerNativeImpl: com.nexustools.genericui.core.NativeImpl<*>? = null
 
     /**
      * Returns the underlying browser DOM `HTMLElement` / `HTMLCanvasElement` peer when running
@@ -329,8 +330,51 @@ class WebDomElement(val tagName: String) {
         }
     }
 
+    fun containsDomElement(candidate: Any?): Boolean {
+        val dom = when (candidate) {
+            is WebDomElement -> candidate
+            is com.nexustools.genericui.core.NativeImpl<*> -> candidate.nativeWidget as? WebDomElement
+            is com.nexustools.genericui.core.AbstractComponent -> candidate.nativeImpl?.nativeWidget as? WebDomElement
+            else -> null
+        } ?: return false
+        var cur: WebDomElement? = dom
+        while (cur != null) {
+            if (cur === this) return true
+            cur = cur.parent
+        }
+        return false
+    }
+
+    internal fun hasActiveClickListener(): Boolean {
+        val baseImpl = ownerNativeImpl as? WebBaseNativeImpl
+        if (baseImpl != null && baseImpl.hasClickListener()) return true
+        val clickListeners = listeners["click"]
+        if (baseImpl == null && !clickListeners.isNullOrEmpty()) return true
+        if ((clickListeners?.size ?: 0) > 1) return true
+        if (com.nexustools.genericui.event.PopupMouseCaptureManager.isPopupRoot(this)) return true
+        if ("genericui-seekbar" in userClassList || "genericui-seekbar" in backingEnumClassList) return true
+        return tagName.lowercase() in INTERACTIVE_CLICK_TAGS
+    }
+
     internal fun dispatchFromBrowser(type: String, payload: Any? = null) {
         if (disabled && type in DISABLED_BLOCKED_EVENTS) return
+        if (!WebBrowserDomBridge.isBrowserEnvironment) {
+            val pe = payload as? com.nexustools.genericui.event.PointerEvent
+            val px = pe?.x ?: Float.NaN
+            val py = pe?.y ?: Float.NaN
+            val targetDom = (payload as? WebDomElement) ?: this
+            when (type) {
+                "pointerdown", "mousedown" -> {
+                    if (interceptPopupPointerDown(px, py, targetDom)) return
+                }
+                "pointerup", "mouseup" -> {
+                    if (interceptPopupPointerUp(px, py, targetDom)) return
+                }
+                "click" -> {
+                    if (interceptPopupClick(px, py, targetDom)) return
+                }
+            }
+        }
         listeners[type]?.toList()?.forEach { it(payload) }
         forwardGlobalPointerDragIfNeeded(type, payload)
     }
@@ -406,6 +450,21 @@ class WebDomElement(val tagName: String) {
 
     fun dispatchEvent(type: String, payload: Any? = null) {
         if (disabled && type in DISABLED_BLOCKED_EVENTS) return
+        val pe = payload as? com.nexustools.genericui.event.PointerEvent
+        val px = pe?.x ?: Float.NaN
+        val py = pe?.y ?: Float.NaN
+        val targetDom = (payload as? WebDomElement) ?: this
+        when (type) {
+            "pointerdown", "mousedown" -> {
+                if (interceptPopupPointerDown(px, py, targetDom)) return
+            }
+            "pointerup", "mouseup" -> {
+                if (interceptPopupPointerUp(px, py, targetDom)) return
+            }
+            "click" -> {
+                if (interceptPopupClick(px, py, targetDom)) return
+            }
+        }
         listeners[type]?.toList()?.forEach { it(payload) }
         forwardGlobalPointerDragIfNeeded(type, payload)
     }
@@ -527,6 +586,81 @@ class WebDomElement(val tagName: String) {
 
     companion object {
         const val LONG_PRESS_THRESHOLD_MS: Int = 500
+        internal var activePopupHitTestDom: WebDomElement? = null
+        internal var activePopupHitTestX: Int = 0
+        internal var activePopupHitTestY: Int = 0
+
+        private fun resolveOwnerOrSelf(targetDom: WebDomElement?): Any? {
+            var cur: WebDomElement? = targetDom
+            while (cur != null) {
+                val owner = cur.ownerNativeImpl
+                if (owner != null) return owner
+                cur = cur.parent
+            }
+            return targetDom
+        }
+
+        internal fun interceptPopupPointerDown(px: Float, py: Float, targetDom: WebDomElement?): Boolean {
+            val checkX = if (px.isNaN()) 0f else px
+            val checkY = if (py.isNaN()) 0f else py
+            activePopupHitTestDom = targetDom
+            activePopupHitTestX = checkX.toInt()
+            activePopupHitTestY = checkY.toInt()
+            return try {
+                com.nexustools.genericui.event.PopupMouseCaptureManager.interceptPointerDown(
+                    px,
+                    py,
+                    resolveOwnerOrSelf(targetDom)
+                )
+            } finally {
+                activePopupHitTestDom = null
+            }
+        }
+
+        internal fun interceptPopupPointerUp(px: Float, py: Float, targetDom: WebDomElement?): Boolean {
+            val checkX = if (px.isNaN()) 0f else px
+            val checkY = if (py.isNaN()) 0f else py
+            activePopupHitTestDom = targetDom
+            activePopupHitTestX = checkX.toInt()
+            activePopupHitTestY = checkY.toInt()
+            return try {
+                com.nexustools.genericui.event.PopupMouseCaptureManager.interceptPointerUp(
+                    px,
+                    py,
+                    resolveOwnerOrSelf(targetDom)
+                )
+            } finally {
+                activePopupHitTestDom = null
+            }
+        }
+
+        internal fun interceptPopupClick(px: Float, py: Float, targetDom: WebDomElement?): Boolean {
+            val checkX = if (px.isNaN()) 0f else px
+            val checkY = if (py.isNaN()) 0f else py
+            activePopupHitTestDom = targetDom
+            activePopupHitTestX = checkX.toInt()
+            activePopupHitTestY = checkY.toInt()
+            return try {
+                com.nexustools.genericui.event.PopupMouseCaptureManager.interceptClick(
+                    px,
+                    py,
+                    resolveOwnerOrSelf(targetDom)
+                )
+            } finally {
+                activePopupHitTestDom = null
+            }
+        }
+
+        private val INTERACTIVE_CLICK_TAGS = setOf(
+            "button",
+            "input",
+            "select",
+            "textarea",
+            "a",
+            "label",
+            "option"
+        )
+
         private val DISABLED_BLOCKED_EVENTS = setOf(
             "mouseenter",
             "mouseover",

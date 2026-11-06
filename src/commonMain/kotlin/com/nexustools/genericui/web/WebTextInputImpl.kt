@@ -19,6 +19,19 @@ class WebTextInputImpl(
         nativeWidget.addEventListener("change") {
             onSubmitListener?.invoke(nativeWidget.value)
         }
+        nativeWidget.addEventListener("focus") {
+            com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = true
+        }
+        nativeWidget.addEventListener("blur") {
+            com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = false
+        }
+    }
+
+    override fun dispose() {
+        if (isFocusedState()) {
+            com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = false
+        }
+        super.dispose()
     }
 
     override fun setValue(value: String) {

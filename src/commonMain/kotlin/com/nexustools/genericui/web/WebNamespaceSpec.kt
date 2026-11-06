@@ -640,6 +640,16 @@ genericui\:text-bubble {
     -moz-user-select: text !important;
     user-select: text !important;
     cursor: text;
+}
+
+/* Modal & Dialog Backdrop Blur */
+.modal-backdrop,
+genericui\:backdrop,
+genericui\:dialogwindow.modal,
+genericui\:modal.modal,
+.genericui-window.modal {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
 }"""
 
     /**

@@ -73,6 +73,7 @@ open class WebBaseNativeImpl(
     }
 
     init {
+        nativeWidget.ownerNativeImpl = this
         syncBootstrapClasses()
         nativeWidget.addEventListener("click") { onClickCallback?.invoke() }
         nativeWidget.addEventListener("dblclick") { onDoubleClickCallback?.invoke() }
@@ -363,13 +364,22 @@ open class WebBaseNativeImpl(
         }
     }
 
-    override fun getBounds(): Rect =
-        Rect(
+    override fun getBounds(): Rect {
+        val hitTestDom = WebDomElement.activePopupHitTestDom
+        if (hitTestDom != null) {
+            return if (nativeWidget.containsDomElement(hitTestDom)) {
+                Rect(WebDomElement.activePopupHitTestX, WebDomElement.activePopupHitTestY, 1, 1)
+            } else {
+                Rect(WebDomElement.activePopupHitTestX + 100000, WebDomElement.activePopupHitTestY + 100000, 0, 0)
+            }
+        }
+        return Rect(
             nativeWidget.offsetLeft,
             nativeWidget.offsetTop,
             preferredSizeValue?.width ?: nativeWidget.clientWidth,
             preferredSizeValue?.height ?: nativeWidget.clientHeight
         )
+    }
 
     override fun setPadding(padding: EdgeInsets) {
         if (padding == EdgeInsets.ZERO) {
@@ -509,6 +519,7 @@ open class WebBaseNativeImpl(
         WebBrowserDomBridge.scheduleTimeout(delayMs, action)
 
     override fun setOnClick(listener: (() -> Unit)?) { onClickCallback = listener }
+    internal fun hasClickListener(): Boolean = onClickCallback != null
     override fun setOnDoubleClick(listener: (() -> Unit)?) { onDoubleClickCallback = listener }
     override fun setOnContextMenu(listener: ((PointerEvent) -> Unit)?) {
         onContextMenuCallback = listener

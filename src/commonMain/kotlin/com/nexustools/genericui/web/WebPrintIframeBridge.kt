@@ -26,6 +26,8 @@ expect object WebPrintIframeBridge {
         marginMm: Float
     )
 
+    fun syncMountedSubtreeIframes(rootElement: WebDomElement)
+
     fun removeChildFromIframe(
         iframeElement: WebDomElement,
         childElement: WebDomElement

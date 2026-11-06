@@ -28,6 +28,7 @@ class WebDialogWindowImpl :
     private var titleText: String = ""
     private var presentationStyle: DialogPresentationStyle = DialogPresentationStyle.WINDOW_MODAL
     private var modalFlag: Boolean = true
+    private var closableFlag: Boolean = true
     private var fullscreenFlag: Boolean = false
     private var onClosedListener: (() -> Unit)? = null
     private var preferredDialogSize: Size? = null
@@ -82,15 +83,31 @@ class WebDialogWindowImpl :
         style["min-height"] = "0"
     }
 
-    private val backdropElement = WebDomElement("div").apply {
+    val backdropElement = WebDomElement("div").apply {
         classList.addAll(listOf("modal-backdrop", "fade", "show"))
         style["position"] = "fixed"
         style["inset"] = "0"
         style["width"] = "100vw"
         style["height"] = "100dvh"
         style["background-color"] = "rgba(0, 0, 0, 0.55)"
+        style["-webkit-backdrop-filter"] = "blur(6px)"
+        style["backdrop-filter"] = "blur(6px)"
         style["z-index"] = "2190"
     }
+
+    private fun isDescendantOf(node: WebDomElement?, ancestor: WebDomElement): Boolean {
+        var cur = node
+        while (cur != null) {
+            if (cur === ancestor) return true
+            cur = cur.parent
+        }
+        return false
+    }
+
+    private fun isDismissible(): Boolean =
+        closableFlag &&
+            nativeWidget.getAttribute("data-closable") != "false" &&
+            nativeWidget.getAttribute("closable") != "false"
 
     init {
         nativeWidget.setAttribute("tabindex", "-1")
@@ -103,12 +120,17 @@ class WebDialogWindowImpl :
         }
         // Clicking the backdrop outside modalDialog closes the modal if dismissible
         backdropElement.addEventListener("click") {
-            if (modalFlag) {
+            if (modalFlag && isDismissible()) {
                 closeDialog()
             }
         }
         nativeWidget.addEventListener("click") { ev ->
-            if (ev === nativeWidget && modalFlag) {
+            val targetDom = ev as? WebDomElement
+            val clickedOutsideDialog = targetDom == null ||
+                targetDom === nativeWidget ||
+                targetDom === backdropElement ||
+                !isDescendantOf(targetDom, modalDialog)
+            if (clickedOutsideDialog && modalFlag && isDismissible()) {
                 closeDialog()
             }
         }
@@ -140,9 +162,13 @@ class WebDialogWindowImpl :
         nativeWidget.setStyle("overflow-y", "auto", true)
         if (modalFlag) {
             nativeWidget.setStyle("background-color", "rgba(0, 0, 0, 0.55)", true)
+            nativeWidget.setStyle("-webkit-backdrop-filter", "blur(6px)", true)
+            nativeWidget.setStyle("backdrop-filter", "blur(6px)", true)
             nativeWidget.setStyle("pointer-events", "auto", true)
         } else {
             nativeWidget.setStyle("background-color", "transparent", true)
+            nativeWidget.style.remove("-webkit-backdrop-filter")
+            nativeWidget.style.remove("backdrop-filter")
             nativeWidget.setStyle("pointer-events", "none", true)
         }
         updateDialogDimensions()
@@ -228,12 +254,15 @@ class WebDialogWindowImpl :
 
     override fun setVisible(visible: Boolean) {
         isDialogShowing = visible
+        super.setVisible(visible)
         if (visible) {
             nativeWidget.setStyle("display", "flex", true)
         } else {
             nativeWidget.setStyle("display", "none", false)
         }
     }
+
+    override fun isVisible(): Boolean = isDialogShowing
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         val dom = childImpl.nativeWidget as? WebDomElement ?: return

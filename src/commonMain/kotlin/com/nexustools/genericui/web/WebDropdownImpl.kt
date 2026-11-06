@@ -35,10 +35,21 @@ class WebDropdownImpl : WebBaseContainerNativeImpl("genericui:dropdown", "dropdo
         if (open) {
             toggleButton.classList.add("show")
             menuList.classList.add("show")
+            com.nexustools.genericui.event.PopupMouseCaptureManager.registerNativePopup(
+                nativePopup = this,
+                hitTester = { _, _, target -> nativeWidget.containsDomElement(target) },
+                onDismiss = { setMenuOpen(false) }
+            )
         } else {
+            com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
             toggleButton.classList.remove("show")
             menuList.classList.remove("show")
         }
+    }
+
+    override fun dispose() {
+        com.nexustools.genericui.event.PopupMouseCaptureManager.unregisterNativePopup(this)
+        super.dispose()
     }
 
     override fun setLabel(label: String) {

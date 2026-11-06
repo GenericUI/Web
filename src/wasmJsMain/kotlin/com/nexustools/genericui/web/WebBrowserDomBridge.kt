@@ -7,6 +7,7 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.res.DataUrlCodec
 
 @JsFun("() => typeof document !== 'undefined' && typeof window !== 'undefined'")
@@ -89,8 +90,79 @@ private external fun wasmCreateElement(tagName: String): JsAny
     "}")
 private external fun wasmBindRoot(oldPeer: JsAny?): JsAny
 
-@JsFun("(peer, onClick, onDblClick, onMouseEnter, onMouseLeave, onInput, onChange, onCancel, onWheel, onLoad, onError, onScroll) => { " +
-    "peer.addEventListener('click', () => { onClick(); }); " +
+@JsFun("(peer, peerId) => { peer.__genericUiPeerId = peerId; }")
+private external fun wasmSetPeerId(peer: JsAny, peerId: Int)
+
+@JsFun("(hasPopupFn, onDownFn, onUpFn, onClickFn) => { " +
+    "try { " +
+    "  const win = typeof window !== 'undefined' ? window : null; " +
+    "  if (!win || win.__genericUiPopupCaptureInstalled) return; " +
+    "  win.__genericUiPopupCaptureInstalled = true; " +
+    "  const findPid = (t) => { " +
+    "    let cur = t; " +
+    "    while (cur) { " +
+    "      if (typeof cur.__genericUiPeerId === 'number') return cur.__genericUiPeerId | 0; " +
+    "      cur = cur.parentElement || cur.parentNode; " +
+    "    } " +
+    "    return 0; " +
+    "  }; " +
+    "  const stopEv = (ev) => { " +
+    "    if (!ev) return; " +
+    "    if (typeof ev.preventDefault === 'function') ev.preventDefault(); " +
+    "    if (typeof ev.stopPropagation === 'function') ev.stopPropagation(); " +
+    "    if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation(); " +
+    "  }; " +
+    "  const handleDown = (ev) => { " +
+    "    const cx = (ev && typeof ev.clientX === 'number') ? ev.clientX : ((ev && ev.touches && ev.touches[0]) ? (ev.touches[0].clientX || 0) : NaN); " +
+    "    const cy = (ev && typeof ev.clientY === 'number') ? ev.clientY : ((ev && ev.touches && ev.touches[0]) ? (ev.touches[0].clientY || 0) : NaN); " +
+    "    if (onDownFn(cx, cy, findPid(ev ? ev.target : null))) stopEv(ev); " +
+    "  }; " +
+    "  const handleUp = (ev) => { " +
+    "    const cx = (ev && typeof ev.clientX === 'number') ? ev.clientX : NaN; " +
+    "    const cy = (ev && typeof ev.clientY === 'number') ? ev.clientY : NaN; " +
+    "    if (onUpFn(cx, cy, findPid(ev ? ev.target : null))) stopEv(ev); " +
+    "  }; " +
+    "  const handleClick = (ev) => { " +
+    "    const cx = (ev && typeof ev.clientX === 'number') ? ev.clientX : NaN; " +
+    "    const cy = (ev && typeof ev.clientY === 'number') ? ev.clientY : NaN; " +
+    "    if (onClickFn(cx, cy, findPid(ev ? ev.target : null))) stopEv(ev); " +
+    "  }; " +
+    "  win.addEventListener('pointerdown', handleDown, true); " +
+    "  win.addEventListener('mousedown', handleDown, true); " +
+    "  win.addEventListener('touchstart', handleDown, true); " +
+    "  win.addEventListener('contextmenu', handleDown, true); " +
+    "  win.addEventListener('pointerup', handleUp, true); " +
+    "  win.addEventListener('mouseup', handleUp, true); " +
+    "  win.addEventListener('click', handleClick, true); " +
+    "} catch (_e) {} }")
+private external fun wasmEnsurePopupCaptureListenersInstalled(
+    hasPopupFn: () -> Boolean,
+    onDownFn: (Float, Float, Int) -> Boolean,
+    onUpFn: (Float, Float, Int) -> Boolean,
+    onClickFn: (Float, Float, Int) -> Boolean
+)
+
+@JsFun("(peer, onClick, onFocus, onBlur, onDblClick, onMouseEnter, onMouseLeave, onInput, onChange, onCancel, onWheel, onLoad, onError, onScroll) => { " +
+    "const isEditable = (el) => { " +
+    "  if (!el || !el.tagName) return false; " +
+    "  if (el.isContentEditable) return true; " +
+    "  const tag = String(el.tagName).toLowerCase(); " +
+    "  if (tag === 'textarea' || tag === 'select') return true; " +
+    "  if (tag === 'input') { " +
+    "    const t = String(el.getAttribute('type') || el.type || 'text').toLowerCase(); " +
+    "    return t !== 'range' && t !== 'button' && t !== 'checkbox' && t !== 'radio' && t !== 'submit' && t !== 'reset' && t !== 'file' && t !== 'color' && t !== 'image'; " +
+    "  } " +
+    "  return false; " +
+    "}; " +
+    "peer.addEventListener('click', (ev) => { " +
+    "  if (ev && ev.__genericUiClickHandled) return; " +
+    "  let cur = ev ? ev.target : null; let pid = 0; " +
+    "  while (cur) { if (typeof cur.__genericUiPeerId === 'number') { pid = cur.__genericUiPeerId | 0; break; } cur = cur.parentElement || cur.parentNode; } " +
+    "  const isDirect = !ev || !ev.target || ev.target === peer; " +
+    "  if (onClick(pid, isDirect) && ev) { ev.__genericUiClickHandled = true; } " +
+    "}); " +
+    "peer.addEventListener('focus', () => { onFocus(isEditable(peer)); }); " +
+    "peer.addEventListener('blur', () => { onBlur(isEditable(peer)); }); " +
     "peer.addEventListener('dblclick', () => { onDblClick(); }); " +
     "peer.addEventListener('mouseenter', () => { onMouseEnter(); }); " +
     "peer.addEventListener('mouseleave', () => { onMouseLeave(); }); " +
@@ -116,7 +188,9 @@ private external fun wasmBindRoot(oldPeer: JsAny?): JsAny
     "}")
 private external fun wasmAttachBasicListeners(
     peer: JsAny,
-    onClick: () -> Unit,
+    onClick: (Int, Boolean) -> Boolean,
+    onFocus: (Boolean) -> Unit,
+    onBlur: (Boolean) -> Unit,
     onDblClick: () -> Unit,
     onMouseEnter: () -> Unit,
     onMouseLeave: () -> Unit,
@@ -132,6 +206,17 @@ private external fun wasmAttachBasicListeners(
 @JsFun("(peer, hasContextMenuListener, onContextMenu, onPointerDown, onPointerMove, onPointerUp, onKeyDown, onKeyUp) => { " +
     "const ptr = (ev, defBtn, cb) => { " +
     "  cb(ev.clientX || 0, ev.clientY || 0, typeof ev.button === 'number' ? ev.button : defBtn, ev.buttons || 0, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey); " +
+    "}; " +
+    "const isEditable = (el) => { " +
+    "  if (!el || !el.tagName) return false; " +
+    "  if (el.isContentEditable) return true; " +
+    "  const tag = String(el.tagName).toLowerCase(); " +
+    "  if (tag === 'textarea' || tag === 'select') return true; " +
+    "  if (tag === 'input') { " +
+    "    const t = String(el.getAttribute('type') || el.type || 'text').toLowerCase(); " +
+    "    return t !== 'range' && t !== 'button' && t !== 'checkbox' && t !== 'radio' && t !== 'submit' && t !== 'reset' && t !== 'file' && t !== 'color' && t !== 'image'; " +
+    "  } " +
+    "  return false; " +
     "}; " +
     "let lpTimer = null; let lpFired = false; let startX = 0; let startY = 0; " +
     "const cancelLp = () => { if (lpTimer !== null) { window.clearTimeout(lpTimer); lpTimer = null; } }; " +
@@ -171,7 +256,8 @@ private external fun wasmAttachBasicListeners(
     "const key = (ev, cb) => { " +
     "  const k = typeof ev.key === 'string' ? ev.key : ''; " +
     "  const c = typeof ev.code === 'string' ? ev.code : k; " +
-    "  cb(k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat); " +
+    "  const ed = isEditable(ev ? ev.target : null) || (typeof document !== 'undefined' && isEditable(document.activeElement)); " +
+    "  cb(k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat, ed); " +
     "}; " +
     "peer.addEventListener('keydown', (ev) => { if (peer.tagName && String(peer.tagName).toLowerCase() === 'genericui:window') ev.__genericUiHandledByWindowPeer = true; key(ev, onKeyDown); }); " +
     "peer.addEventListener('keyup', (ev) => { if (peer.tagName && String(peer.tagName).toLowerCase() === 'genericui:window') ev.__genericUiHandledByWindowPeer = true; key(ev, onKeyUp); }); " +
@@ -183,8 +269,8 @@ private external fun wasmAttachInputListeners(
     onPointerDown: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onPointerMove: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onPointerUp: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
-    onKeyDown: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
-    onKeyUp: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit
+    onKeyDown: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
+    onKeyUp: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit
 )
 
 @JsFun("(onResize) => { " +
@@ -217,6 +303,18 @@ private external fun wasmRegisterWindowResize(onResize: (Int, Int) -> Unit)
     "else block(); " +
     "}")
 private external fun wasmSchedulePostLayout(block: () -> Unit)
+
+@JsFun("(block) => { " +
+    "if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') { " +
+    "  return window.requestAnimationFrame(() => block()) | 0; " +
+    "} return -1; }")
+private external fun wasmRequestAnimationFrame(block: () -> Unit): Int
+
+@JsFun("(handle) => { " +
+    "if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') { " +
+    "  window.cancelAnimationFrame(handle); return true; " +
+    "} return false; }")
+private external fun wasmCancelAnimationFrame(handle: Int): Boolean
 
 @JsFun("(delayMs, block) => { " +
     "if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') { " +
@@ -972,7 +1070,121 @@ private external fun wasmSetPreloadedResource(
 @JsFun("() => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (g) g.__GENERICUI_PRELOADED_RESOURCES__ = {}; } catch (err) {} }")
 private external fun wasmClearPreloadedResources()
 
-@JsFun("(peer, onPlay, onPlaying, onPause, onEnded, onWaiting, onCanPlay, onTimeUpdate, onDurationChange, onLoadedMetadata, onBufferedSync, onProgress, onError) => { " +
+@JsFun("(key) => { " +
+    "try { " +
+    "  const g = typeof window !== 'undefined' ? window : globalThis; " +
+    "  const s = g && g.__GENERICUI_PRELOADED_RESOURCES__; " +
+    "  return (s && s[key]) ? s[key] : null; " +
+    "} catch (_e) { return null; } }")
+private external fun wasmFindPreloadedRecordByKey(key: String): JsAny?
+
+@JsFun("(byteLen, getByteAt) => { " +
+    "try { " +
+    "  const g = typeof window !== 'undefined' ? window : globalThis; " +
+    "  const store = g && g.__GENERICUI_PRELOADED_RESOURCES__; " +
+    "  if (!store || byteLen <= 0) return null; " +
+    "  const keys = Object.keys(store); " +
+    "  const headCount = Math.min(16, byteLen); " +
+    "  const tailStart = Math.max(0, byteLen - 16); " +
+    "  for (let k = 0; k < keys.length; k++) { " +
+    "    const rec = store[keys[k]]; " +
+    "    if (!rec || !rec.bytes) continue; " +
+    "    const b = rec.bytes; " +
+    "    const len = typeof b.length === 'number' ? b.length : (typeof b.byteLength === 'number' ? b.byteLength : -1); " +
+    "    if (len !== byteLen) continue; " +
+    "    let match = true; " +
+    "    for (let i = 0; i < headCount; i++) { " +
+    "      if ((b[i] & 0xFF) !== (getByteAt(i) & 0xFF)) { match = false; break; } " +
+    "    } " +
+    "    if (!match) continue; " +
+    "    for (let i = tailStart; i < byteLen; i++) { " +
+    "      if ((b[i] & 0xFF) !== (getByteAt(i) & 0xFF)) { match = false; break; } " +
+    "    } " +
+    "    if (match) return rec; " +
+    "  } " +
+    "  return null; " +
+    "} catch (_e) { return null; } }")
+private external fun wasmFindPreloadedRecordByBytes(
+    byteLen: Int,
+    getByteAt: (Int) -> Int
+): JsAny?
+
+@JsFun("(rec) => { " +
+    "try { " +
+    "  if (!rec) return 0; " +
+    "  let img = rec.imageElement; " +
+    "  if ((!img || !img.complete || !(img.naturalWidth > 0)) && typeof rec.dataUrl === 'string' && rec.dataUrl.indexOf('data:image/') === 0 && typeof Image === 'function') { " +
+    "    img = new Image(); img.src = rec.dataUrl; rec.imageElement = img; " +
+    "  } " +
+    "  if (img && img.complete && img.naturalWidth > 0) return img.naturalWidth | 0; " +
+    "  return 0; " +
+    "} catch (_e) { return 0; } }")
+private external fun wasmGetPreloadedRecordWidth(rec: JsAny): Int
+
+@JsFun("(rec) => { " +
+    "try { " +
+    "  if (!rec) return 0; " +
+    "  const img = rec.imageElement; " +
+    "  if (img && img.complete && img.naturalHeight > 0) return img.naturalHeight | 0; " +
+    "  return 0; " +
+    "} catch (_e) { return 0; } }")
+private external fun wasmGetPreloadedRecordHeight(rec: JsAny): Int
+
+@JsFun("(rec, outW, outH) => { " +
+    "try { " +
+    "  if (!rec || typeof document === 'undefined') return null; " +
+    "  const img = rec.imageElement; " +
+    "  if (!img || !img.complete || !(img.naturalWidth > 0)) return null; " +
+    "  const canvas = document.createElement('canvas'); " +
+    "  canvas.width = outW; canvas.height = outH; " +
+    "  const ctx = canvas.getContext('2d'); " +
+    "  if (!ctx) return null; " +
+    "  ctx.drawImage(img, 0, 0, outW, outH); " +
+    "  return canvas; " +
+    "} catch (_e) { return null; } }")
+private external fun wasmRenderPreloadedRecordToCanvas(rec: JsAny, outW: Int, outH: Int): JsAny?
+
+@JsFun("(peer, mimeType) => { " +
+    "try { " +
+    "  if (!peer) return null; " +
+    "  if (typeof peer.toDataURL === 'function') { " +
+    "    const url = peer.toDataURL(mimeType); " +
+    "    return (typeof url === 'string' && url.indexOf('data:') === 0) ? url : null; " +
+    "  } " +
+    "  if (peer.complete && peer.naturalWidth > 0 && peer.naturalHeight > 0 && typeof document !== 'undefined') { " +
+    "    const c = document.createElement('canvas'); " +
+    "    c.width = peer.naturalWidth | 0; c.height = peer.naturalHeight | 0; " +
+    "    const ctx = c.getContext('2d'); " +
+    "    if (!ctx) return null; " +
+    "    ctx.drawImage(peer, 0, 0, c.width, c.height); " +
+    "    const url = c.toDataURL(mimeType); " +
+    "    return (typeof url === 'string' && url.indexOf('data:') === 0) ? url : null; " +
+    "  } " +
+    "  return null; " +
+    "} catch (_e) { return null; } }")
+private external fun wasmSurfacePeerToDataUrl(peer: JsAny, mimeType: String): String?
+
+@JsFun("(canvasPeer, outW, outH, emitFourBytes) => { " +
+    "try { " +
+    "  const ctx = canvasPeer.getContext('2d'); " +
+    "  if (!ctx) return false; " +
+    "  const imgData = ctx.getImageData(0, 0, outW, outH); " +
+    "  const d = imgData.data; " +
+    "  const total = outW * outH * 4; " +
+    "  for (let i = 0; i < total; i += 4) { " +
+    "    const packed = ((d[i] & 0xFF) << 24) | ((d[i + 1] & 0xFF) << 16) | ((d[i + 2] & 0xFF) << 8) | (d[i + 3] & 0xFF); " +
+    "    emitFourBytes(i, packed); " +
+    "  } " +
+    "  return true; " +
+    "} catch (_e) { return false; } }")
+private external fun wasmReadCanvasRgbaPixels(
+    canvasPeer: JsAny,
+    outW: Int,
+    outH: Int,
+    emitFourBytes: (Int, Int) -> Unit
+): Boolean
+
+@JsFun("(peer, onPlay, onPlaying, onPause, onEnded, onWaiting, onCanPlay, onLoadedData, onSeeked, onTimeUpdate, onDurationChange, onLoadedMetadata, onBufferedSync, onProgress, onError) => { " +
     "try { " +
     "  if (peer.__genericUiMediaAttached) return; " +
     "  peer.__genericUiMediaAttached = true; " +
@@ -1005,6 +1217,8 @@ private external fun wasmClearPreloadedResources()
     "  peer.addEventListener('ended', () => { onEnded(); }); " +
     "  peer.addEventListener('waiting', () => { onWaiting(); }); " +
     "  peer.addEventListener('canplay', () => { syncBuffered(false); onCanPlay(); }); " +
+    "  peer.addEventListener('loadeddata', () => { syncBuffered(false); onLoadedData(); }); " +
+    "  peer.addEventListener('seeked', () => { syncBuffered(false); onSeeked(); }); " +
     "  peer.addEventListener('timeupdate', () => { " +
     "    syncBuffered(false); " +
     "    const ct = typeof peer.currentTime === 'number' && !isNaN(peer.currentTime) ? peer.currentTime : 0; " +
@@ -1031,6 +1245,8 @@ private external fun wasmAttachMediaListeners(
     onEnded: () -> Unit,
     onWaiting: () -> Unit,
     onCanPlay: () -> Unit,
+    onLoadedData: () -> Unit,
+    onSeeked: () -> Unit,
     onTimeUpdate: (Double) -> Unit,
     onDurationChange: (Double) -> Unit,
     onLoadedMetadata: () -> Unit,
@@ -1039,26 +1255,33 @@ private external fun wasmAttachMediaListeners(
     onError: (String) -> Unit
 )
 
-@JsFun("(peer, mimeType) => { " +
+@JsFun("(peer, tagName, mimeType) => { " +
     "try { " +
-    "  const el = (peer && typeof peer.canPlayType === 'function') ? peer : (typeof document !== 'undefined' ? document.createElement('video') : null); " +
+    "  const tag = (tagName && String(tagName).toLowerCase() === 'audio') ? 'audio' : 'video'; " +
+    "  const el = (peer && typeof peer.canPlayType === 'function') ? peer : (typeof document !== 'undefined' ? document.createElement(tag) : null); " +
     "  if (!el || typeof el.canPlayType !== 'function') return false; " +
     "  const res = String(el.canPlayType(mimeType) || '').trim().toLowerCase(); " +
     "  return res === 'probably' || res === 'maybe'; " +
     "} catch (_e) { return false; } }")
-private external fun wasmMediaCanPlayType(peer: JsAny?, mimeType: String): Boolean
+private external fun wasmMediaCanPlayType(peer: JsAny?, tagName: String, mimeType: String): Boolean
 
 @JsFun("(peer, seekOffsetSeconds) => { " +
     "try { " +
+    "  const preloadAttr = String((typeof peer.getAttribute === 'function' && peer.getAttribute('preload')) || peer.preload || '').trim().toLowerCase(); " +
+    "  if (preloadAttr !== 'none') { peer.preload = 'auto'; } " +
     "  if (typeof peer.load === 'function') peer.load(); " +
-    "  if (seekOffsetSeconds > 0) { " +
-    "    const applySeek = () => { try { peer.currentTime = seekOffsetSeconds; } catch (_e) {} }; " +
-    "    if ((peer.readyState || 0) >= 1) applySeek(); " +
-    "    else { " +
-    "      let applied = false; " +
-    "      const listener = () => { if (!applied) { applied = true; peer.removeEventListener('loadedmetadata', listener); applySeek(); } }; " +
-    "      peer.addEventListener('loadedmetadata', listener); " +
-    "    } " +
+    "  const isVideo = String(peer.tagName || '').toLowerCase() === 'video'; " +
+    "  const applySeek = () => { " +
+    "    try { " +
+    "      if (seekOffsetSeconds > 0) { peer.currentTime = seekOffsetSeconds; } " +
+    "      else if (isVideo && peer.paused !== false && preloadAttr !== 'none') { peer.currentTime = 0.001; } " +
+    "    } catch (_e) {} " +
+    "  }; " +
+    "  if ((peer.readyState || 0) >= 1) applySeek(); " +
+    "  else { " +
+    "    let applied = false; " +
+    "    const listener = () => { if (!applied) { applied = true; peer.removeEventListener('loadedmetadata', listener); applySeek(); } }; " +
+    "    peer.addEventListener('loadedmetadata', listener); " +
     "  } " +
     "  return true; " +
     "} catch (_e) { return false; } }")
@@ -1172,23 +1395,72 @@ private external fun wasmTriggerBrowserFileDownload(
 ): Boolean
 
 actual object WebBrowserDomBridge {
+    private var nextPeerId: Int = 1
+    private val peerById = HashMap<Int, WebDomElement>()
+    private var popupCaptureInstalled: Boolean = false
+
     actual val isBrowserEnvironment: Boolean
         get() = wasmIsBrowserEnv()
+
+    private fun ensurePopupCaptureInstalled() {
+        if (popupCaptureInstalled || !isBrowserEnvironment) return
+        popupCaptureInstalled = true
+        wasmEnsurePopupCaptureListenersInstalled(
+            hasPopupFn = { com.nexustools.genericui.event.PopupMouseCaptureManager.hasActivePopup },
+            onDownFn = { cx, cy, pid ->
+                WebDomElement.interceptPopupPointerDown(cx, cy, peerById[pid])
+            },
+            onUpFn = { cx, cy, pid ->
+                WebDomElement.interceptPopupPointerUp(cx, cy, peerById[pid])
+            },
+            onClickFn = { cx, cy, pid ->
+                WebDomElement.interceptPopupClick(cx, cy, peerById[pid])
+            }
+        )
+    }
 
     actual fun createPeer(element: WebDomElement) {
         if (!isBrowserEnvironment) return
         val peer = wasmCreateElement(element.tagName)
+        val pid = nextPeerId++
+        peerById[pid] = element
+        wasmSetPeerId(peer, pid)
         element.browserPeer = peer
+        ensurePopupCaptureInstalled()
         attachInteractiveListeners(element, peer)
     }
 
     private fun attachInteractiveListeners(model: WebDomElement, peer: JsAny) {
         wasmAttachBasicListeners(
             peer = peer,
-            onClick = {
+            onClick = { originPid, isDirectTarget ->
                 if (!model.disabled) {
-                    model.dispatchFromBrowser("click", null)
+                    val originModel = peerById[originPid] ?: model
+                    val isModalContainer = model.tagName.equals("genericui:dialogwindow", ignoreCase = true) ||
+                        model.tagName.equals("genericui:modal", ignoreCase = true) ||
+                        model.classList.contains("modal") ||
+                        model.enumClasses.contains("modal")
+                    if (!isModalContainer || isDirectTarget || originModel === model) {
+                        model.dispatchFromBrowser("click", originModel)
+                        model.hasActiveClickListener()
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
+            },
+            onFocus = { isEditable ->
+                if (isEditable) {
+                    com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = true
+                }
+                model.dispatchFromBrowser("focus", null)
+            },
+            onBlur = { isEditable ->
+                if (isEditable) {
+                    com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = false
+                }
+                model.dispatchFromBrowser("blur", null)
             },
             onDblClick = {
                 if (!model.disabled) {
@@ -1284,19 +1556,39 @@ actual object WebBrowserDomBridge {
                     )
                 }
             },
-            onKeyDown = { key, code, shift, ctrl, alt, meta, repeat ->
+            onKeyDown = { key, code, shift, ctrl, alt, meta, repeat, isEditable ->
                 if (!model.disabled) {
+                    com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
                     model.dispatchFromBrowser(
                         "keydown",
-                        KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
+                        KeyEvent(
+                            key = key,
+                            code = code,
+                            shiftKey = shift,
+                            ctrlKey = ctrl,
+                            altKey = alt,
+                            metaKey = meta,
+                            isRepeat = repeat,
+                            isTargetTextInput = isEditable
+                        )
                     )
                 }
             },
-            onKeyUp = { key, code, shift, ctrl, alt, meta, repeat ->
+            onKeyUp = { key, code, shift, ctrl, alt, meta, repeat, isEditable ->
                 if (!model.disabled) {
+                    com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
                     model.dispatchFromBrowser(
                         "keyup",
-                        KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat)
+                        KeyEvent(
+                            key = key,
+                            code = code,
+                            shiftKey = shift,
+                            ctrlKey = ctrl,
+                            altKey = alt,
+                            metaKey = meta,
+                            isRepeat = repeat,
+                            isTargetTextInput = isEditable
+                        )
                     )
                 }
             }
@@ -1328,16 +1620,31 @@ actual object WebBrowserDomBridge {
 
     actual fun bindApplicationRoot(element: WebDomElement) {
         if (!isBrowserEnvironment) return
+        ensurePopupCaptureInstalled()
         val oldPeer = element.browserPeer as? JsAny
-        element.browserPeer = wasmBindRoot(oldPeer)
+        val newPeer = wasmBindRoot(oldPeer)
+        val pid = nextPeerId++
+        peerById[pid] = element
+        wasmSetPeerId(newPeer, pid)
+        element.browserPeer = newPeer
     }
 
     actual fun syncElementTree(element: WebDomElement) {
         if (!isBrowserEnvironment) return
-        val parentPeer = element.browserPeer as? JsAny ?: return
-        for ((index, child) in element.children.withIndex()) {
-            val childPeer = child.browserPeer as? JsAny ?: continue
-            wasmInsertChildAt(parentPeer, index, childPeer)
+        syncElementTreeNodesRecursive(element)
+        WebPrintIframeBridge.syncMountedSubtreeIframes(element)
+    }
+
+    private fun syncElementTreeNodesRecursive(element: WebDomElement) {
+        val parentPeer = element.browserPeer as? JsAny
+        if (parentPeer != null) {
+            for ((index, child) in element.children.withIndex()) {
+                val childPeer = child.browserPeer as? JsAny ?: continue
+                wasmInsertChildAt(parentPeer, index, childPeer)
+            }
+        }
+        for (child in element.children) {
+            syncElementTreeNodesRecursive(child)
         }
     }
 
@@ -1426,15 +1733,21 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun appendChild(parent: WebDomElement, child: WebDomElement) {
-        val parentPeer = parent.browserPeer as? JsAny ?: return
-        val childPeer = child.browserPeer as? JsAny ?: return
-        wasmAppendChild(parentPeer, childPeer)
+        val parentPeer = parent.browserPeer as? JsAny
+        val childPeer = child.browserPeer as? JsAny
+        if (parentPeer != null && childPeer != null) {
+            wasmAppendChild(parentPeer, childPeer)
+        }
+        WebPrintIframeBridge.syncMountedSubtreeIframes(child)
     }
 
     actual fun insertChildAt(parent: WebDomElement, index: Int, child: WebDomElement) {
-        val parentPeer = parent.browserPeer as? JsAny ?: return
-        val childPeer = child.browserPeer as? JsAny ?: return
-        wasmInsertChildAt(parentPeer, index, childPeer)
+        val parentPeer = parent.browserPeer as? JsAny
+        val childPeer = child.browserPeer as? JsAny
+        if (parentPeer != null && childPeer != null) {
+            wasmInsertChildAt(parentPeer, index, childPeer)
+        }
+        WebPrintIframeBridge.syncMountedSubtreeIframes(child)
     }
 
     actual fun removeChild(parent: WebDomElement, child: WebDomElement) {
@@ -1516,6 +1829,21 @@ actual object WebBrowserDomBridge {
     actual fun schedulePostLayoutPass(block: () -> Unit) {
         if (!isBrowserEnvironment) return
         wasmSchedulePostLayout(block)
+    }
+
+    actual fun requestAnimationFrame(callback: () -> Unit): Int {
+        if (isBrowserEnvironment) {
+            val id = wasmRequestAnimationFrame(callback)
+            if (id >= 0) return id
+        }
+        return setTimeoutId(16, callback)
+    }
+
+    actual fun cancelAnimationFrame(handle: Int) {
+        if (handle < 0) return
+        if (!isBrowserEnvironment || !wasmCancelAnimationFrame(handle)) {
+            clearTimeoutId(handle)
+        }
     }
 
     actual fun scheduleTimeout(delayMs: Int, block: () -> Unit): Boolean =
@@ -1791,6 +2119,66 @@ actual object WebBrowserDomBridge {
         wasmClearPreloadedResources()
     }
 
+    actual fun surfacePeerToDataUrl(peer: Any?, mimeType: String): String? {
+        if (!isBrowserEnvironment || peer == null) return null
+        val rawPeer = (if (peer is WebDomElement) peer.browserPeer else peer) as? JsAny ?: return null
+        return wasmSurfacePeerToDataUrl(rawPeer, mimeType)
+    }
+
+    actual fun decodePreloadedBrowserImage(
+        uriOrKey: String?,
+        encodedBytes: ByteArray?,
+        targetWidth: Int?,
+        targetHeight: Int?
+    ): ImageBuffer? {
+        if (!isBrowserEnvironment) return null
+        var record: JsAny? = null
+        if (!uriOrKey.isNullOrBlank()) {
+            for (candidate in expandPreloadedResourceLookupKeys(uriOrKey)) {
+                val found = wasmFindPreloadedRecordByKey(candidate)
+                if (found != null) {
+                    record = found
+                    break
+                }
+            }
+        }
+        if (record == null && encodedBytes != null && encodedBytes.isNotEmpty()) {
+            record = wasmFindPreloadedRecordByBytes(encodedBytes.size) { idx ->
+                encodedBytes[idx].toInt() and 0xFF
+            }
+        }
+        if (record == null) return null
+
+        val natW = wasmGetPreloadedRecordWidth(record)
+        val natH = wasmGetPreloadedRecordHeight(record)
+        if (natW <= 0 || natH <= 0) return null
+
+        val outW = (targetWidth ?: natW).coerceAtLeast(1)
+        val outH = (targetHeight ?: natH).coerceAtLeast(1)
+        val canvasPeer = wasmRenderPreloadedRecordToCanvas(record, outW, outH) ?: return null
+
+        return createLazyBrowserCanvasImageBuffer(
+            width = outW,
+            height = outH,
+            canvasPeer = canvasPeer,
+            toDataUrlFn = { mimeType ->
+                wasmSurfacePeerToDataUrl(canvasPeer, mimeType)
+            },
+            readRgbaPixelsFn = {
+                val loadedBytes = ByteArray(outW * outH * 4)
+                wasmReadCanvasRgbaPixels(canvasPeer, outW, outH) { offset, packed ->
+                    if (offset + 3 < loadedBytes.size) {
+                        loadedBytes[offset] = ((packed ushr 24) and 0xFF).toByte()
+                        loadedBytes[offset + 1] = ((packed ushr 16) and 0xFF).toByte()
+                        loadedBytes[offset + 2] = ((packed ushr 8) and 0xFF).toByte()
+                        loadedBytes[offset + 3] = (packed and 0xFF).toByte()
+                    }
+                }
+                loadedBytes
+            }
+        )
+    }
+
     actual fun requestElementFullscreen(element: WebDomElement?): Boolean {
         activeFullscreenElement = element
         if (!isBrowserEnvironment) return true
@@ -1839,6 +2227,8 @@ actual object WebBrowserDomBridge {
             onEnded = { element.dispatchFromBrowser("ended", null) },
             onWaiting = { element.dispatchFromBrowser("waiting", null) },
             onCanPlay = { element.dispatchFromBrowser("canplay", null) },
+            onLoadedData = { element.dispatchFromBrowser("loadeddata", null) },
+            onSeeked = { element.dispatchFromBrowser("seeked", null) },
             onTimeUpdate = { ctSeconds ->
                 element.setAttribute("data-current-time", ctSeconds.toString())
                 element.dispatchFromBrowser("timeupdate", ctSeconds)
@@ -1866,10 +2256,14 @@ actual object WebBrowserDomBridge {
 
     actual fun mediaCanPlayType(element: WebDomElement, mimeType: String): Boolean {
         if (!isBrowserEnvironment) return false
-        return wasmMediaCanPlayType(element.browserPeer as? JsAny, mimeType)
+        return wasmMediaCanPlayType(element.browserPeer as? JsAny, element.tagName, mimeType)
     }
 
     actual fun mediaLoad(element: WebDomElement, seekOffsetSeconds: Double): Boolean {
+        val preloadAttr = element.getAttribute("preload")?.trim()?.lowercase()
+        if (preloadAttr != "none") {
+            element.setAttribute("preload", preloadAttr ?: "auto")
+        }
         if (!isBrowserEnvironment) return false
         val peer = element.browserPeer as? JsAny ?: return false
         return wasmMediaLoad(peer, seekOffsetSeconds)

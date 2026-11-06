@@ -277,12 +277,22 @@ class WebLazyGridImpl : WebBaseContainerNativeImpl("genericui:lazygrid", "lazy-g
     }
 
     override fun scrollToIndex(index: Int) {
-        if (totalItemCount <= 0) return
-        val clamped = index.coerceIn(0, totalItemCount - 1)
-        val targetRow = clamped / columnsCount
-        nativeWidget.scrollTop = (targetRow * estimatedRowHeightPx).toDouble()
-        explicitViewportWindowProvided = false
-        recomputeVisibleWindow()
+        val clamped = if (totalItemCount > 0) index.coerceIn(0, totalItemCount - 1) else index.coerceAtLeast(0)
+        val targetRow = ((clamped / columnsCount) - 1).coerceAtLeast(0)
+        val fromEstimatedScale = if (
+            WebBrowserDomBridge.isBrowserEnvironment &&
+            measuredAvgRowHeightPx > 1f &&
+            estimatedRowHeightPx > 0
+        ) {
+            measuredAvgRowHeightPx / estimatedRowHeightPx.toFloat()
+        } else {
+            1f
+        }
+        nativeWidget.scrollTop = (targetRow * estimatedRowHeightPx * fromEstimatedScale).toDouble()
+        if (totalItemCount > 0) {
+            explicitViewportWindowProvided = false
+            recomputeVisibleWindow()
+        }
     }
 
     fun recomputeVisibleWindow() {
