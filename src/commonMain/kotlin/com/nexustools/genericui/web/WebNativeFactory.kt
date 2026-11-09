@@ -43,6 +43,7 @@ import com.nexustools.genericui.nativeimpl.shell.*
 import com.nexustools.genericui.nativeimpl.system.*
 import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
 import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
+import com.nexustools.genericui.threading.UiThreadDispatcherNativeImpl
 
 /**
  * Web (`js` + `wasmJs`) implementation of [NativeFactory].
@@ -58,6 +59,8 @@ class WebNativeFactory(
     override val backendTarget: BackendTarget = BackendTarget.Web
     override val layoutFactory: LayoutFactory = WebLayoutFactory
     override val isStyleSheetEngineEnabled: Boolean
+        get() = false
+    override val ignoresAestheticStylesOnStandardComponents: Boolean
         get() = false
 
     override val defaultTitleCapabilities: com.nexustools.genericui.window.TitleCapabilities =
@@ -171,6 +174,7 @@ class WebNativeFactory(
     override fun createTreeView(): TreeViewNativeImpl<*> = WebTreeViewImpl()
 
     // System Services & Async I/O / Database
+    override fun createUiThreadDispatcher(): UiThreadDispatcherNativeImpl = WebUiThreadDispatcherNativeImpl()
     override fun createUiTimerScheduler(): UiTimerNativeImpl = WebUiTimerImpl()
     override fun createPermissionManager(): PermissionManagerNativeImpl = WebPermissionManagerImpl()
     override fun createSystemTray(): SystemTrayNativeImpl = WebSystemTrayImpl()

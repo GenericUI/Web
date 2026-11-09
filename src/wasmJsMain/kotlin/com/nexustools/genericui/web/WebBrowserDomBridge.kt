@@ -26,6 +26,17 @@ private external fun wasmRequestElementFullscreen(peer: JsAny?): Boolean
     "} return true; }")
 private external fun wasmExitFullscreen(): Boolean
 
+@JsFun("(onFullscreenChanged) => { " +
+    "if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return; " +
+    "const notify = () => { " +
+    "  const fsEl = document.fullscreenElement || document.webkitFullscreenElement || null; " +
+    "  onFullscreenChanged(!!fsEl); " +
+    "}; " +
+    "document.addEventListener('fullscreenchange', notify); " +
+    "document.addEventListener('webkitfullscreenchange', notify); " +
+    "}")
+private external fun wasmRegisterFullscreenChange(onFullscreenChanged: (Boolean) -> Unit)
+
 @JsFun("(peer, src, onLoaded, onError) => { " +
     "try { " +
     "  peer.style.display = 'none'; " +
@@ -257,7 +268,15 @@ private external fun wasmAttachBasicListeners(
     "  const k = typeof ev.key === 'string' ? ev.key : ''; " +
     "  const c = typeof ev.code === 'string' ? ev.code : k; " +
     "  const ed = isEditable(ev ? ev.target : null) || (typeof document !== 'undefined' && isEditable(document.activeElement)); " +
-    "  cb(k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat, ed); " +
+    "  const win = typeof window !== 'undefined' ? window : globalThis; " +
+    "  let eid = ev && typeof ev.__genericUiKeyEventId === 'number' ? (ev.__genericUiKeyEventId | 0) : 0; " +
+    "  if (!eid) { " +
+    "    eid = ((win.__genericUiNextKeyEventId || 0) + 1) | 0; " +
+    "    if (eid <= 0) eid = 1; " +
+    "    win.__genericUiNextKeyEventId = eid; " +
+    "    try { if (ev) ev.__genericUiKeyEventId = eid; } catch (_e) {} " +
+    "  } " +
+    "  cb(eid, k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat, ed); " +
     "}; " +
     "peer.addEventListener('keydown', (ev) => { if (peer.tagName && String(peer.tagName).toLowerCase() === 'genericui:window') ev.__genericUiHandledByWindowPeer = true; key(ev, onKeyDown); }); " +
     "peer.addEventListener('keyup', (ev) => { if (peer.tagName && String(peer.tagName).toLowerCase() === 'genericui:window') ev.__genericUiHandledByWindowPeer = true; key(ev, onKeyUp); }); " +
@@ -269,8 +288,8 @@ private external fun wasmAttachInputListeners(
     onPointerDown: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onPointerMove: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onPointerUp: (Float, Float, Int, Int, Boolean, Boolean, Boolean, Boolean) -> Unit,
-    onKeyDown: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
-    onKeyUp: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit
+    onKeyDown: (Int, String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
+    onKeyUp: (Int, String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit
 )
 
 @JsFun("(onResize) => { " +
@@ -856,7 +875,15 @@ private external fun wasmEnsureGlobalWindowPointerDragBridge(
     "    if (typeof cb !== 'function') return; " +
     "    const k = typeof ev.key === 'string' ? ev.key : ''; " +
     "    const c = typeof ev.code === 'string' ? ev.code : k; " +
-    "    cb(k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat); " +
+    "    const ed = isEditableTarget(ev ? ev.target : null) || (typeof document !== 'undefined' && isEditableTarget(document.activeElement)); " +
+    "    let eid = ev && typeof ev.__genericUiKeyEventId === 'number' ? (ev.__genericUiKeyEventId | 0) : 0; " +
+    "    if (!eid) { " +
+    "      eid = ((win.__genericUiNextKeyEventId || 0) + 1) | 0; " +
+    "      if (eid <= 0) eid = 1; " +
+    "      win.__genericUiNextKeyEventId = eid; " +
+    "      try { if (ev) ev.__genericUiKeyEventId = eid; } catch (_e) {} " +
+    "    } " +
+    "    cb(eid, k, c, !!ev.shiftKey, !!ev.ctrlKey, !!ev.altKey, !!ev.metaKey, !!ev.repeat, ed); " +
     "  }; " +
     "  win.addEventListener('keydown', (ev) => { " +
     "    if (isModalActive() || isEditableTarget(ev.target)) return; " +
@@ -872,8 +899,8 @@ private external fun wasmEnsureGlobalWindowPointerDragBridge(
     "  }, false); " +
     "} catch (_e) {} }")
 private external fun wasmRegisterWindowKeyEvents(
-    onKeyDown: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
-    onKeyUp: (String, String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit
+    onKeyDown: (Int, String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
+    onKeyUp: (Int, String, String, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit
 )
 
 @JsFun("(parent, child) => { " +
@@ -963,6 +990,16 @@ private external fun wasmAddStyleSheetLink(id: String, href: String)
     "if (id === 'genericui-bootstrap-css') { const jsEl = document.getElementById('genericui-bootstrap-js'); if (jsEl && jsEl.parentNode) jsEl.parentNode.removeChild(jsEl); } " +
     "}")
 private external fun wasmRemoveStyleSheetLink(id: String)
+
+@JsFun("(id, cssText) => { " +
+    "const head = document.head; if (!head) return; " +
+    "let el = document.getElementById(id); " +
+    "if (!cssText || !String(cssText).trim()) { if (el && el.parentNode) el.parentNode.removeChild(el); return; } " +
+    "if (!el) { el = document.createElement('style'); el.id = id; head.appendChild(el); } " +
+    "el.textContent = cssText; " +
+    "if (el.parentNode !== head) head.appendChild(el); " +
+    "}")
+private external fun wasmSetHeadStyleElement(id: String, cssText: String)
 
 @JsFun("() => { if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true; const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches; return !!isDarkMode; }")
 private external fun wasmQueryDarkMode(): Boolean
@@ -1058,7 +1095,7 @@ private external fun wasmGetPreloadedText(key: String): String?
 @JsFun("(key) => { try { const g = typeof window !== 'undefined' ? window : globalThis; const s = g && g.__GENERICUI_PRELOADED_RESOURCES__; return !!(s && s[key]); } catch (err) { return false; } }")
 private external fun wasmHasPreloadedResource(key: String): Boolean
 
-@JsFun("(key, mimeType, dataUrl, text, hasText) => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (!g.__GENERICUI_PRELOADED_RESOURCES__) g.__GENERICUI_PRELOADED_RESOURCES__ = {}; g.__GENERICUI_PRELOADED_RESOURCES__[key] = { id: key, path: key, name: key, mimeType: mimeType, dataUrl: dataUrl, text: hasText ? text : null }; } catch (err) {} }")
+@JsFun("(key, mimeType, dataUrl, text, hasText) => { try { const g = typeof window !== 'undefined' ? window : globalThis; if (!g.__GENERICUI_PRELOADED_RESOURCES__) g.__GENERICUI_PRELOADED_RESOURCES__ = {}; const rec = { id: key, path: key, name: key, mimeType: mimeType, dataUrl: dataUrl, text: hasText ? text : null }; if (typeof mimeType === 'string' && mimeType.indexOf('image/') === 0 && typeof Image === 'function') { const img = new Image(); img.decoding = 'async'; img.src = dataUrl; rec.imageElement = img; } g.__GENERICUI_PRELOADED_RESOURCES__[key] = rec; } catch (err) {} }")
 private external fun wasmSetPreloadedResource(
     key: String,
     mimeType: String,
@@ -1271,10 +1308,12 @@ private external fun wasmMediaCanPlayType(peer: JsAny?, tagName: String, mimeTyp
     "  if (preloadAttr !== 'none') { peer.preload = 'auto'; } " +
     "  if (typeof peer.load === 'function') peer.load(); " +
     "  const isVideo = String(peer.tagName || '').toLowerCase() === 'video'; " +
+    "  const rawSrc = String((typeof peer.getAttribute === 'function' && peer.getAttribute('src')) || peer.src || ''); " +
+    "  const isTranscodeSrc = /(?:[?&]mode=transcode|\\/v1\\/transcode\\/|[?&](?:start|start_seconds|tv|ta|tc)=)/i.test(rawSrc); " +
     "  const applySeek = () => { " +
     "    try { " +
     "      if (seekOffsetSeconds > 0) { peer.currentTime = seekOffsetSeconds; } " +
-    "      else if (isVideo && peer.paused !== false && preloadAttr !== 'none') { peer.currentTime = 0.001; } " +
+    "      else if (isVideo && !isTranscodeSrc && peer.paused !== false && preloadAttr !== 'none') { peer.currentTime = 0.001; } " +
     "    } catch (_e) {} " +
     "  }; " +
     "  if ((peer.readyState || 0) >= 1) applySeek(); " +
@@ -1398,6 +1437,41 @@ actual object WebBrowserDomBridge {
     private var nextPeerId: Int = 1
     private val peerById = HashMap<Int, WebDomElement>()
     private var popupCaptureInstalled: Boolean = false
+    private var lastDomKeyEventId: Int = 0
+    private var lastDomKeyEvent: KeyEvent? = null
+
+    private fun toKeyEvent(
+        eventId: Int,
+        key: String,
+        code: String,
+        shiftKey: Boolean,
+        ctrlKey: Boolean,
+        altKey: Boolean,
+        metaKey: Boolean,
+        isRepeat: Boolean,
+        isTargetTextInput: Boolean
+    ): KeyEvent {
+        com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isTargetTextInput
+        val existing = lastDomKeyEvent
+        if (eventId > 0 && eventId == lastDomKeyEventId && existing != null) {
+            return existing
+        }
+        val created = KeyEvent(
+            key = key,
+            code = code,
+            shiftKey = shiftKey,
+            ctrlKey = ctrlKey,
+            altKey = altKey,
+            metaKey = metaKey,
+            isRepeat = isRepeat,
+            isTargetTextInput = isTargetTextInput
+        )
+        if (eventId > 0) {
+            lastDomKeyEventId = eventId
+            lastDomKeyEvent = created
+        }
+        return created
+    }
 
     actual val isBrowserEnvironment: Boolean
         get() = wasmIsBrowserEnv()
@@ -1556,40 +1630,36 @@ actual object WebBrowserDomBridge {
                     )
                 }
             },
-            onKeyDown = { key, code, shift, ctrl, alt, meta, repeat, isEditable ->
+            onKeyDown = { eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable ->
                 if (!model.disabled) {
-                    com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
-                    model.dispatchFromBrowser(
-                        "keydown",
-                        KeyEvent(
-                            key = key,
-                            code = code,
-                            shiftKey = shift,
-                            ctrlKey = ctrl,
-                            altKey = alt,
-                            metaKey = meta,
-                            isRepeat = repeat,
-                            isTargetTextInput = isEditable
+                    val isWindowTag = model.tagName.equals("genericui:window", ignoreCase = true)
+                    val hasListener = isWindowTag ||
+                        (model.ownerNativeImpl as? WebBaseNativeImpl)?.hasKeyDownListener() == true ||
+                        model.eventListeners["keydown"]?.isNotEmpty() == true
+                    if (hasListener) {
+                        model.dispatchFromBrowser(
+                            "keydown",
+                            toKeyEvent(eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable)
                         )
-                    )
+                    } else {
+                        com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
+                    }
                 }
             },
-            onKeyUp = { key, code, shift, ctrl, alt, meta, repeat, isEditable ->
+            onKeyUp = { eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable ->
                 if (!model.disabled) {
-                    com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
-                    model.dispatchFromBrowser(
-                        "keyup",
-                        KeyEvent(
-                            key = key,
-                            code = code,
-                            shiftKey = shift,
-                            ctrlKey = ctrl,
-                            altKey = alt,
-                            metaKey = meta,
-                            isRepeat = repeat,
-                            isTargetTextInput = isEditable
+                    val isWindowTag = model.tagName.equals("genericui:window", ignoreCase = true)
+                    val hasListener = isWindowTag ||
+                        (model.ownerNativeImpl as? WebBaseNativeImpl)?.hasKeyUpListener() == true ||
+                        model.eventListeners["keyup"]?.isNotEmpty() == true
+                    if (hasListener) {
+                        model.dispatchFromBrowser(
+                            "keyup",
+                            toKeyEvent(eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable)
                         )
-                    )
+                    } else {
+                        com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
+                    }
                 }
             }
         )
@@ -1805,6 +1875,10 @@ actual object WebBrowserDomBridge {
 
     actual fun removeStyleSheetLink(id: String) {
         if (isBrowserEnvironment) wasmRemoveStyleSheetLink(id)
+    }
+
+    actual fun setHeadStyleElement(id: String, cssText: String?) {
+        if (isBrowserEnvironment) wasmSetHeadStyleElement(id, cssText.orEmpty())
     }
 
     actual fun isBrowserDarkMode(onSystemThemeChanged: ((Boolean) -> Unit)?): Boolean {
@@ -2129,7 +2203,8 @@ actual object WebBrowserDomBridge {
         uriOrKey: String?,
         encodedBytes: ByteArray?,
         targetWidth: Int?,
-        targetHeight: Int?
+        targetHeight: Int?,
+        preserveAspectRatio: Boolean
     ): ImageBuffer? {
         if (!isBrowserEnvironment) return null
         var record: JsAny? = null
@@ -2153,8 +2228,13 @@ actual object WebBrowserDomBridge {
         val natH = wasmGetPreloadedRecordHeight(record)
         if (natW <= 0 || natH <= 0) return null
 
-        val outW = (targetWidth ?: natW).coerceAtLeast(1)
-        val outH = (targetHeight ?: natH).coerceAtLeast(1)
+        val (outW, outH) = resolvePreloadedImageCanvasDimensions(
+            naturalWidth = natW,
+            naturalHeight = natH,
+            targetWidth = targetWidth,
+            targetHeight = targetHeight,
+            preserveAspectRatio = preserveAspectRatio
+        )
         val canvasPeer = wasmRenderPreloadedRecordToCanvas(record, outW, outH) ?: return null
 
         return createLazyBrowserCanvasImageBuffer(
@@ -2189,6 +2269,17 @@ actual object WebBrowserDomBridge {
         activeFullscreenElement = null
         if (!isBrowserEnvironment) return true
         return wasmExitFullscreen()
+    }
+
+    actual fun registerFullscreenChange(onFullscreenChanged: (Boolean) -> Unit) {
+        headlessFullscreenListeners.add(onFullscreenChanged)
+        if (!isBrowserEnvironment) return
+        wasmRegisterFullscreenChange { isFs ->
+            if (!isFs) {
+                activeFullscreenElement = null
+            }
+            onFullscreenChanged(isFs)
+        }
     }
 
     actual fun bindInvisibleHtmlImageLoader(
@@ -2260,6 +2351,7 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun mediaLoad(element: WebDomElement, seekOffsetSeconds: Double): Boolean {
+        element.removeAttribute("data-last-seek-sec")
         val preloadAttr = element.getAttribute("preload")?.trim()?.lowercase()
         if (preloadAttr != "none") {
             element.setAttribute("preload", preloadAttr ?: "auto")
@@ -2284,9 +2376,11 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun mediaSeekTo(element: WebDomElement, seconds: Double): Boolean {
+        val clamped = seconds.coerceAtLeast(0.0)
+        element.setAttribute("data-last-seek-sec", clamped.toString())
         if (!isBrowserEnvironment) return false
         val peer = element.browserPeer as? JsAny ?: return false
-        return wasmMediaSeekTo(peer, seconds)
+        return wasmMediaSeekTo(peer, clamped)
     }
 
     actual fun mediaSetVolume(element: WebDomElement, volume: Float): Boolean {
@@ -2394,11 +2488,11 @@ actual object WebBrowserDomBridge {
     ) {
         if (!isBrowserEnvironment) return
         wasmRegisterWindowKeyEvents(
-            onKeyDown = { key, code, shift, ctrl, alt, meta, repeat ->
-                onKeyDown(KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat))
+            onKeyDown = { eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable ->
+                onKeyDown(toKeyEvent(eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable))
             },
-            onKeyUp = { key, code, shift, ctrl, alt, meta, repeat ->
-                onKeyUp(KeyEvent(key = key, code = code, shiftKey = shift, ctrlKey = ctrl, altKey = alt, metaKey = meta, isRepeat = repeat))
+            onKeyUp = { eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable ->
+                onKeyUp(toKeyEvent(eventId, key, code, shift, ctrl, alt, meta, repeat, isEditable))
             }
         )
     }

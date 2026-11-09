@@ -61,6 +61,7 @@ expect object WebBrowserDomBridge {
     fun syncBootstrapTheme(themeCssValue: String)
     fun addStyleSheetLink(id: String, href: String)
     fun removeStyleSheetLink(id: String)
+    fun setHeadStyleElement(id: String, cssText: String?)
     fun isBrowserDarkMode(onSystemThemeChanged: ((Boolean) -> Unit)? = null): Boolean
 
     fun triggerClick(element: WebDomElement): Boolean
@@ -120,11 +121,13 @@ expect object WebBrowserDomBridge {
         uriOrKey: String?,
         encodedBytes: ByteArray?,
         targetWidth: Int?,
-        targetHeight: Int?
+        targetHeight: Int?,
+        preserveAspectRatio: Boolean = true
     ): ImageBuffer?
 
     fun requestElementFullscreen(element: WebDomElement?): Boolean
     fun exitFullscreen(): Boolean
+    fun registerFullscreenChange(onFullscreenChanged: (Boolean) -> Unit)
 
     fun bindInvisibleHtmlImageLoader(
         imgElement: WebDomElement,
@@ -279,12 +282,26 @@ fun WebBrowserDomBridge.failPendingImageLoads(): Int {
 }
 
 private var activeFullscreenElementState: WebDomElement? = null
+internal val headlessFullscreenListeners = mutableListOf<(Boolean) -> Unit>()
 
 var WebBrowserDomBridge.activeFullscreenElement: WebDomElement?
     get() = activeFullscreenElementState
     internal set(value) {
         activeFullscreenElementState = value
     }
+
+/**
+ * Dispatches a simulated browser `fullscreenchange` event to all listeners registered via
+ * [WebBrowserDomBridge.registerFullscreenChange].
+ */
+fun WebBrowserDomBridge.dispatchFullscreenChange(isFullscreen: Boolean) {
+    if (!isFullscreen) {
+        activeFullscreenElementState = null
+    }
+    for (listener in headlessFullscreenListeners.toList()) {
+        listener(isFullscreen)
+    }
+}
 
 private var browserOnlineState: Boolean = true
 private val browserConnectivityListeners = mutableListOf<(Boolean) -> Unit>()
@@ -414,8 +431,60 @@ internal fun expandPreloadedResourceLookupKeys(rawKey: String): List<String> {
         }
     }
 
+    runCatching {
+        val table = com.nexustools.genericui.res.Resources.activeTable
+        val matchedResId = table.findResourceId(com.nexustools.genericui.resources.ResourceType.DRAWABLE, clean)
+            ?: table.getDrawableByName(clean)?.resId
+            ?: if (stem.isNotEmpty()) {
+                table.findResourceId(com.nexustools.genericui.resources.ResourceType.DRAWABLE, stem)
+                    ?: table.getDrawableByName(stem)?.resId
+            } else null
+        if (matchedResId != null) {
+            keys.add(matchedResId.name)
+            keys.add(matchedResId.toResourceUri())
+            keys.add("drawable/${matchedResId.name}")
+            keys.add("assets/drawable/${matchedResId.name}")
+            val rel = matchedResId.relativePath.replace('\\', '/').trimStart('/')
+            if (rel.isNotEmpty()) {
+                keys.add(rel)
+                keys.add(rel.lowercase())
+                keys.add("res/$rel")
+                keys.add("res://$rel")
+                keys.add("assets/drawable/$rel")
+                keys.add("res/assets/drawable/$rel")
+                keys.add("res://assets/drawable/$rel")
+                val relFileName = rel.substringAfterLast('/')
+                if (relFileName.isNotEmpty()) {
+                    keys.add(relFileName)
+                    keys.add(relFileName.lowercase())
+                    keys.add("res/$relFileName")
+                    keys.add("drawable/$relFileName")
+                    keys.add("assets/drawable/$relFileName")
+                    keys.add("res/assets/drawable/$relFileName")
+                    keys.add("res://assets/drawable/$relFileName")
+                }
+            }
+        }
+    }
+
     return keys.toList()
 }
+
+internal fun resolvePreloadedImageCanvasDimensions(
+    naturalWidth: Int,
+    naturalHeight: Int,
+    targetWidth: Int?,
+    targetHeight: Int?,
+    preserveAspectRatio: Boolean
+): Pair<Int, Int> = com.nexustools.genericui.image.ImageLoader.resolveTargetDimensions(
+    srcWidth = naturalWidth,
+    srcHeight = naturalHeight,
+    options = com.nexustools.genericui.image.ImageDecodeOptions(
+        targetWidth = targetWidth,
+        targetHeight = targetHeight,
+        preserveAspectRatio = preserveAspectRatio
+    )
+)
 
 internal fun isTextLikeMimeType(mimeType: String): Boolean {
     val lower = mimeType.trim().lowercase()

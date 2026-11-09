@@ -26,6 +26,8 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
 
     var currentTabPosition: TabPosition = TabPosition.TOP
         private set
+    var fullWidthTabs: Boolean = false
+        private set
 
     private val tabImpls = mutableListOf<TabNativeImpl<*>?>()
     private val tabPanes = mutableListOf<Pair<String, NativeImpl<*>?>>()
@@ -254,6 +256,19 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
     override fun setTabBarStyleNative(style: TabBarStyle) {
         TabBarStyle.entries.forEach { navListElement.classList.remove(it.cssClass) }
         navListElement.classList.add(style.cssClass)
+    }
+
+    override fun setFullWidthTabsNative(fullWidth: Boolean) {
+        fullWidthTabs = fullWidth
+        if (fullWidth) {
+            navListElement.classList.add("nav-fill")
+            navListElement.classList.add("nav-justified")
+            nativeWidget.setAttribute("data-full-width-tabs", "true")
+        } else {
+            navListElement.classList.remove("nav-fill")
+            navListElement.classList.remove("nav-justified")
+            nativeWidget.removeAttribute("data-full-width-tabs")
+        }
     }
 
     override fun setSelectedTabIndex(index: Int, fadeTransition: Boolean) {

@@ -6,6 +6,7 @@ import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.theme.SystemThemeDetector
+import com.nexustools.genericui.style.theme.ThemeConfig
 
 /**
  * Web implementation of [ApplicationNativeImpl] managing the root `<genericui:app>` DOM container,
@@ -20,6 +21,10 @@ class WebApplicationImpl(
     internal var topMenuBarElement: WebDomElement? = null
     private var themeMode: ThemeMode = ThemeMode.AUTO
     private var themeColor: String? = templateEngine.themeColor
+    private var themeConfig: ThemeConfig = ThemeConfig.DEFAULT.let { base ->
+        val tc = templateEngine.themeColor?.trim()?.takeIf { it.isNotEmpty() }
+        if (tc != null) base.withPrimaryAccentColor(tc) else base
+    }
 
     /**
      * Most recently applied Bootstrap `data-bs-theme` value (`"dark"` or `"light"`).
@@ -40,6 +45,13 @@ class WebApplicationImpl(
             WebBrowserDomBridge.bindApplicationRoot(nativeApplication)
         }
         mountDefaultHeadStyleSheets()
+        if (themeConfig.hasColorOverrides) {
+            WebStyleSheetManager.applyThemeConfigOverrides(
+                nativeApplication,
+                themeConfig,
+                SystemThemeDetector.resolveTheme(themeMode)
+            )
+        }
     }
 
     private fun mountDefaultHeadStyleSheets() {
@@ -73,6 +85,9 @@ class WebApplicationImpl(
         nativeApplication.removeAttribute("data-bs-theme")
         WebBrowserDomBridge.syncBootstrapTheme(bsTheme)
         WebBrowserDomBridge.setDocumentTheme(bsTheme)
+        if (themeConfig.hasColorOverrides) {
+            WebStyleSheetManager.applyThemeConfigOverrides(nativeApplication, themeConfig, resolved)
+        }
     }
 
     /**
@@ -114,6 +129,7 @@ class WebApplicationImpl(
 
     override fun setThemeMode(mode: ThemeMode) {
         themeMode = mode
+        themeConfig = themeConfig.withMode(mode)
         applyThemeNative(mode)
     }
 
@@ -138,12 +154,39 @@ class WebApplicationImpl(
         nativeApplication.setStyle("--genericui-theme-color", clean)
         if (clean != null) {
             nativeApplication.setAttribute("data-genericui-theme-color", clean)
+            themeConfig = themeConfig.withPrimaryAccentColor(clean)
         } else {
             nativeApplication.removeAttribute("data-genericui-theme-color")
+            themeConfig = themeConfig.copy(
+                colors = themeConfig.colors.copy(primary = null, accent = null)
+            )
         }
+        val resolved = SystemThemeDetector.resolveTheme(themeMode)
+        WebStyleSheetManager.applyThemeConfigOverrides(nativeApplication, themeConfig, resolved)
     }
 
     override fun getThemeColor(): String? = themeColor
+
+    override fun setThemeConfig(config: ThemeConfig) {
+        themeConfig = config
+        themeMode = config.mode
+        val primaryColor = config.colors.primary ?: config.colors.accent
+        if (primaryColor != null) {
+            val hex = primaryColor.toHex(includeAlpha = false)
+            themeColor = hex
+            templateEngine.themeColor = hex
+            nativeApplication.setStyle("--genericui-theme-color", hex)
+            nativeApplication.setAttribute("data-genericui-theme-color", hex)
+        }
+        if (!config.styleSheet.isNullOrBlank()) {
+            WebStyleSheetManager.addStyleSheet(config.styleSheet!!, nativeApplication)
+        }
+        applyThemeNative(themeMode)
+        val resolved = SystemThemeDetector.resolveTheme(themeMode)
+        WebStyleSheetManager.applyThemeConfigOverrides(nativeApplication, themeConfig, resolved)
+    }
+
+    override fun getThemeConfig(): ThemeConfig = themeConfig
 
     override fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {
         WebStyleSheetManager.addStyleSheet(styleSheet, nativeApplication)
@@ -207,10 +250,29 @@ class WebApplicationImpl(
                 val bsTheme = if (resolved == ThemeMode.LIGHT) "light" else "dark"
                 activeApplication?.let { app ->
                     app.themeMode = configured
+                    app.themeConfig = app.themeConfig.withMode(configured)
+                    app.appliedBootstrapTheme = bsTheme
+                    if (app.themeConfig.hasColorOverrides) {
+                        WebStyleSheetManager.applyThemeConfigOverrides(app.nativeApplication, app.themeConfig, resolved)
+                    }
+                }
+                WebBrowserDomBridge.syncBootstrapTheme(bsTheme)
+                WebBrowserDomBridge.setDocumentTheme(bsTheme)
+            }
+            SystemThemeDetector.onThemeConfigChangedHook = { _, config, resolved ->
+                val bsTheme = if (resolved == ThemeMode.LIGHT) "light" else "dark"
+                activeApplication?.let { app ->
+                    app.themeConfig = config
+                    app.themeMode = config.mode
                     app.appliedBootstrapTheme = bsTheme
                 }
                 WebBrowserDomBridge.syncBootstrapTheme(bsTheme)
                 WebBrowserDomBridge.setDocumentTheme(bsTheme)
+                WebStyleSheetManager.applyThemeConfigOverrides(
+                    activeApplication?.nativeApplication,
+                    config,
+                    resolved
+                )
             }
             SystemThemeDetector.onStyleSheetChangedHook = { app ->
                 val root = activeApplication?.nativeApplication

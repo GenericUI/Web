@@ -344,20 +344,32 @@ actual object WebBrowserDomBridge {
         })
         peer.addEventListener("keydown", { ev: dynamic ->
             if (!model.disabled) {
-                if (model.tagName.equals("genericui:window", ignoreCase = true)) {
+                val isWindowTag = model.tagName.equals("genericui:window", ignoreCase = true)
+                if (isWindowTag) {
                     ev.__genericUiHandledByWindowPeer = true
                 }
-                val ke = toKeyEvent(ev)
-                model.dispatchFromBrowser("keydown", ke)
+                val hasListener = isWindowTag ||
+                    (model.ownerNativeImpl as? WebBaseNativeImpl)?.hasKeyDownListener() == true ||
+                    model.eventListeners["keydown"]?.isNotEmpty() == true
+                if (hasListener) {
+                    val ke = toKeyEvent(ev)
+                    model.dispatchFromBrowser("keydown", ke)
+                }
             }
         })
         peer.addEventListener("keyup", { ev: dynamic ->
             if (!model.disabled) {
-                if (model.tagName.equals("genericui:window", ignoreCase = true)) {
+                val isWindowTag = model.tagName.equals("genericui:window", ignoreCase = true)
+                if (isWindowTag) {
                     ev.__genericUiHandledByWindowPeer = true
                 }
-                val ke = toKeyEvent(ev)
-                model.dispatchFromBrowser("keyup", ke)
+                val hasListener = isWindowTag ||
+                    (model.ownerNativeImpl as? WebBaseNativeImpl)?.hasKeyUpListener() == true ||
+                    model.eventListeners["keyup"]?.isNotEmpty() == true
+                if (hasListener) {
+                    val ke = toKeyEvent(ev)
+                    model.dispatchFromBrowser("keyup", ke)
+                }
             }
         })
         peer.addEventListener("load", { _: dynamic ->
@@ -446,17 +458,19 @@ actual object WebBrowserDomBridge {
     }
 
     private fun toKeyEvent(ev: dynamic): KeyEvent {
-        val key = (ev.key as? String) ?: ""
-        val code = (ev.code as? String) ?: key
-        val shift = (ev.shiftKey as? Boolean) ?: false
-        val ctrl = (ev.ctrlKey as? Boolean) ?: false
-        val alt = (ev.altKey as? Boolean) ?: false
-        val meta = (ev.metaKey as? Boolean) ?: false
-        val repeat = (ev.repeat as? Boolean) ?: false
+        val cached = ev?.__genericUiKeyEvent as? KeyEvent
+        if (cached != null) return cached
+        val key = (ev?.key as? String) ?: ""
+        val code = (ev?.code as? String) ?: key
+        val shift = (ev?.shiftKey as? Boolean) ?: false
+        val ctrl = (ev?.ctrlKey as? Boolean) ?: false
+        val alt = (ev?.altKey as? Boolean) ?: false
+        val meta = (ev?.metaKey as? Boolean) ?: false
+        val repeat = (ev?.repeat as? Boolean) ?: false
         val doc: dynamic = if (isBrowserEnvironment) js("document") else null
         val isEditable = isEditableDomTarget(ev?.target) || isEditableDomTarget(doc?.activeElement)
         com.nexustools.genericui.event.InputFocusManager.isNativeTextInputFocused = isEditable
-        return KeyEvent(
+        val created = KeyEvent(
             key = key,
             code = code,
             shiftKey = shift,
@@ -466,6 +480,10 @@ actual object WebBrowserDomBridge {
             isRepeat = repeat,
             isTargetTextInput = isEditable
         )
+        if (ev != null) {
+            runCatching { ev.__genericUiKeyEvent = created }
+        }
+        return created
     }
 
     actual fun syncId(element: WebDomElement, id: String) {
@@ -745,6 +763,27 @@ actual object WebBrowserDomBridge {
             if (jsEl != null && jsEl.parentNode != null) {
                 jsEl.parentNode.removeChild(jsEl)
             }
+        }
+    }
+
+    actual fun setHeadStyleElement(id: String, cssText: String?) {
+        if (!isBrowserEnvironment) return
+        val doc: dynamic = js("document")
+        val head: dynamic = doc.head ?: return
+        val existing: dynamic = doc.getElementById(id)
+        if (cssText.isNullOrBlank()) {
+            if (existing != null && existing.parentNode != null) {
+                existing.parentNode.removeChild(existing)
+            }
+            return
+        }
+        val styleEl: dynamic = existing ?: doc.createElement("style").also { el: dynamic ->
+            el.id = id
+            head.appendChild(el)
+        }
+        styleEl.textContent = cssText
+        if (styleEl.parentNode !== head) {
+            head.appendChild(styleEl)
         }
     }
 
@@ -1257,6 +1296,12 @@ actual object WebBrowserDomBridge {
             record.bytes = uint8
             record.dataUrl = dataUrl
             record.text = resolvedText
+            if (resolvedMime.startsWith("image/", ignoreCase = true) && (js("typeof Image === 'function'") as Boolean)) {
+                val img: dynamic = js("new Image()")
+                img.decoding = "async"
+                img.src = dataUrl
+                record.imageElement = img
+            }
             for (candidate in expandPreloadedResourceLookupKeys(key)) {
                 store[candidate] = record
             }
@@ -1346,7 +1391,8 @@ actual object WebBrowserDomBridge {
         uriOrKey: String?,
         encodedBytes: ByteArray?,
         targetWidth: Int?,
-        targetHeight: Int?
+        targetHeight: Int?,
+        preserveAspectRatio: Boolean
     ): ImageBuffer? {
         if (!isBrowserEnvironment) return null
         return runCatching {
@@ -1366,6 +1412,7 @@ actual object WebBrowserDomBridge {
                 (js("typeof Image === 'function'") as Boolean)
             ) {
                 val createdImg: dynamic = js("new Image()")
+                createdImg.decoding = "async"
                 createdImg.src = record.dataUrl
                 record.imageElement = createdImg
                 img = createdImg
@@ -1375,8 +1422,13 @@ actual object WebBrowserDomBridge {
             val natH = (img.naturalHeight as? Number)?.toInt() ?: 0
             if (natW <= 0 || natH <= 0) return@runCatching null
 
-            val outW = (targetWidth ?: natW).coerceAtLeast(1)
-            val outH = (targetHeight ?: natH).coerceAtLeast(1)
+            val (outW, outH) = resolvePreloadedImageCanvasDimensions(
+                naturalWidth = natW,
+                naturalHeight = natH,
+                targetWidth = targetWidth,
+                targetHeight = targetHeight,
+                preserveAspectRatio = preserveAspectRatio
+            )
             val doc: dynamic = js("document")
             val canvas: dynamic = doc.createElement("canvas")
             canvas.width = outW
@@ -1428,6 +1480,26 @@ actual object WebBrowserDomBridge {
             }
             true
         }.getOrDefault(false)
+    }
+
+    actual fun registerFullscreenChange(onFullscreenChanged: (Boolean) -> Unit) {
+        headlessFullscreenListeners.add(onFullscreenChanged)
+        if (!isBrowserEnvironment) return
+        runCatching {
+            val doc: dynamic = js("document")
+            if (doc != null && js("typeof doc.addEventListener === 'function'") as Boolean) {
+                val notify = {
+                    val fsEl: dynamic = doc.fullscreenElement ?: doc.webkitFullscreenElement
+                    val isFs = fsEl != null
+                    if (!isFs) {
+                        activeFullscreenElement = null
+                    }
+                    onFullscreenChanged(isFs)
+                }
+                doc.addEventListener("fullscreenchange", { notify() })
+                doc.addEventListener("webkitfullscreenchange", { notify() })
+            }
+        }
     }
 
     actual fun bindInvisibleHtmlImageLoader(
@@ -1583,6 +1655,7 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun mediaLoad(element: WebDomElement, seekOffsetSeconds: Double): Boolean {
+        element.removeAttribute("data-last-seek-sec")
         val preloadAttr = element.getAttribute("preload")?.trim()?.lowercase()
         if (preloadAttr != "none") {
             element.setAttribute("preload", preloadAttr ?: "auto")
@@ -1599,11 +1672,15 @@ actual object WebBrowserDomBridge {
             }
             val isVideo = element.tagName.equals("video", ignoreCase = true) ||
                 ((peer.tagName as? String)?.equals("video", ignoreCase = true) == true)
+            val rawSrc = ((peer.getAttribute?.invoke("src") as? String) ?: (peer.src as? String) ?: element.getAttribute("src")).orEmpty()
+            val isTranscodeSrc = rawSrc.contains("mode=transcode", ignoreCase = true) ||
+                rawSrc.contains("/v1/transcode/", ignoreCase = true) ||
+                Regex("(?:\\?|&)(?:start|start_seconds|tv|ta|tc)=", RegexOption.IGNORE_CASE).containsMatchIn(rawSrc)
             val applySeek = {
                 runCatching {
                     if (seekOffsetSeconds > 0.0) {
                         peer.currentTime = seekOffsetSeconds
-                    } else if (isVideo && (peer.paused as? Boolean) != false && peerPreload != "none") {
+                    } else if (isVideo && !isTranscodeSrc && (peer.paused as? Boolean) != false && peerPreload != "none") {
                         peer.currentTime = 0.001
                     }
                 }
@@ -1667,10 +1744,11 @@ actual object WebBrowserDomBridge {
     }
 
     actual fun mediaSeekTo(element: WebDomElement, seconds: Double): Boolean {
+        val clamped = seconds.coerceAtLeast(0.0)
+        element.setAttribute("data-last-seek-sec", clamped.toString())
         if (!isBrowserEnvironment) return false
         val peer: dynamic = element.browserPeer ?: return false
         return runCatching {
-            val clamped = seconds.coerceAtLeast(0.0)
             val readyState = (peer.readyState as? Number)?.toInt() ?: 0
             if (readyState >= 1) {
                 peer.currentTime = clamped

@@ -375,7 +375,13 @@ class WebDomElement(val tagName: String) {
                 }
             }
         }
-        listeners[type]?.toList()?.forEach { it(payload) }
+        if (type == "click") {
+            com.nexustools.genericui.event.PopupMouseCaptureManager.withApprovedClickDispatch {
+                listeners[type]?.toList()?.forEach { it(payload) }
+            }
+        } else {
+            listeners[type]?.toList()?.forEach { it(payload) }
+        }
         forwardGlobalPointerDragIfNeeded(type, payload)
     }
 
@@ -465,7 +471,13 @@ class WebDomElement(val tagName: String) {
                 if (interceptPopupClick(px, py, targetDom)) return
             }
         }
-        listeners[type]?.toList()?.forEach { it(payload) }
+        if (type == "click") {
+            com.nexustools.genericui.event.PopupMouseCaptureManager.withApprovedClickDispatch {
+                listeners[type]?.toList()?.forEach { it(payload) }
+            }
+        } else {
+            listeners[type]?.toList()?.forEach { it(payload) }
+        }
         forwardGlobalPointerDragIfNeeded(type, payload)
     }
 

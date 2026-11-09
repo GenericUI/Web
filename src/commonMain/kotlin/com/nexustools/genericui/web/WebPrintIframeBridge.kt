@@ -23,7 +23,8 @@ expect object WebPrintIframeBridge {
         documentTitle: String,
         pageSize: PrintPageSize,
         orientation: PrintPageOrientation,
-        marginMm: Float
+        marginMm: Float,
+        styleSheetHrefs: List<String>? = null
     )
 
     fun syncMountedSubtreeIframes(rootElement: WebDomElement)

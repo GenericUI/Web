@@ -16,6 +16,7 @@ import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.CssTransitionSpec
+import com.nexustools.genericui.web.style.WebCssStyleTranslator
 
 /**
  * Base [NativeImpl] for the `:web` backend.
@@ -177,6 +178,7 @@ open class WebBaseNativeImpl(
 
     private val appliedComputedStyleKeys = mutableSetOf<String>()
     private val appliedComponentStyleKeys = mutableSetOf<String>()
+    private val appliedComponentStyleProps = linkedMapOf<String, Pair<String, Boolean>>()
     private var savedDisplayWhenVisible: Pair<String, Boolean>? = null
 
     protected fun hasExplicitStyleProperty(property: String): Boolean {
@@ -343,22 +345,48 @@ open class WebBaseNativeImpl(
         preferredSizeValue = size
         if (size != null) {
             if (size.width > 0) {
-                nativeWidget.setStyle("width", "${size.width}px", false)
                 nativeWidget.clientWidth = size.width
+                val explicitWidth = appliedComponentStyleProps["width"]
+                if (explicitWidth != null) {
+                    nativeWidget.setStyle("width", explicitWidth.first, explicitWidth.second)
+                } else if ("width" !in appliedComponentStyleKeys) {
+                    nativeWidget.setStyle("width", "${size.width}px", false)
+                }
+            } else {
+                val explicitWidth = appliedComponentStyleProps["width"]
+                if (explicitWidth != null) {
+                    nativeWidget.setStyle("width", explicitWidth.first, explicitWidth.second)
+                } else if ("width" !in appliedComputedStyleKeys && "width" !in appliedComponentStyleKeys) {
+                    nativeWidget.setStyle("width", null, false)
+                }
+            }
+            if (size.height > 0) {
+                nativeWidget.clientHeight = size.height
+                val explicitHeight = appliedComponentStyleProps["height"]
+                if (explicitHeight != null) {
+                    nativeWidget.setStyle("height", explicitHeight.first, explicitHeight.second)
+                } else if ("height" !in appliedComponentStyleKeys) {
+                    nativeWidget.setStyle("height", "${size.height}px", false)
+                }
+            } else {
+                val explicitHeight = appliedComponentStyleProps["height"]
+                if (explicitHeight != null) {
+                    nativeWidget.setStyle("height", explicitHeight.first, explicitHeight.second)
+                } else if ("height" !in appliedComputedStyleKeys && "height" !in appliedComponentStyleKeys) {
+                    nativeWidget.setStyle("height", null, false)
+                }
+            }
+        } else {
+            val explicitWidth = appliedComponentStyleProps["width"]
+            if (explicitWidth != null) {
+                nativeWidget.setStyle("width", explicitWidth.first, explicitWidth.second)
             } else if ("width" !in appliedComputedStyleKeys && "width" !in appliedComponentStyleKeys) {
                 nativeWidget.setStyle("width", null, false)
             }
-            if (size.height > 0) {
-                nativeWidget.setStyle("height", "${size.height}px", false)
-                nativeWidget.clientHeight = size.height
+            val explicitHeight = appliedComponentStyleProps["height"]
+            if (explicitHeight != null) {
+                nativeWidget.setStyle("height", explicitHeight.first, explicitHeight.second)
             } else if ("height" !in appliedComputedStyleKeys && "height" !in appliedComponentStyleKeys) {
-                nativeWidget.setStyle("height", null, false)
-            }
-        } else {
-            if ("width" !in appliedComputedStyleKeys && "width" !in appliedComponentStyleKeys) {
-                nativeWidget.setStyle("width", null, false)
-            }
-            if ("height" !in appliedComputedStyleKeys && "height" !in appliedComponentStyleKeys) {
                 nativeWidget.setStyle("height", null, false)
             }
         }
@@ -430,10 +458,11 @@ open class WebBaseNativeImpl(
     }
 
     override fun applyComponentStyle(style: ComponentStyle) {
-        val newProps = style.toCssPropertyMap()
+        val newProps = WebCssStyleTranslator.toInlineCssDeclarations(ComputedStyle.EMPTY, style)
         val removedKeys = appliedComponentStyleKeys.filter { it !in newProps }
         for (oldKey in removedKeys) {
             appliedComponentStyleKeys.remove(oldKey)
+            appliedComponentStyleProps.remove(oldKey)
             appliedComputedStyleKeys.remove(oldKey)
             if (oldKey == "display") {
                 savedDisplayWhenVisible = null
@@ -443,10 +472,17 @@ open class WebBaseNativeImpl(
         for ((prop, pair) in newProps) {
             val (value, isImp) = pair
             appliedComponentStyleKeys.add(prop)
+            appliedComponentStyleProps[prop] = value to isImp
             if (prop == "display" && value != "none") {
                 savedDisplayWhenVisible = value to isImp
             }
             nativeWidget.setStyle(prop, value, isImp)
+        }
+        val aspect = style.getAspectRatio()?.numericRatio
+        if (aspect != null && aspect > 0f && (nativeWidget.tagName == "genericui:aspectratiocontainer" || nativeWidget.hasClass("ratio") || "ratio" in nativeWidget.enumClasses)) {
+            val scaled = ((1f / aspect) * 10000f).let { kotlin.math.round(it).toInt() }
+            val percentStr = if (scaled % 100 == 0) "${scaled / 100}%" else "${scaled / 100f}%"
+            nativeWidget.setStyle("--bs-aspect-ratio", percentStr, false)
         }
         preferredSizeValue?.let { size ->
             if (size.width > 0 && "width" !in newProps) nativeWidget.setStyle("width", "${size.width}px", false)
@@ -538,7 +574,9 @@ open class WebBaseNativeImpl(
     override fun setOnPointerLeave(listener: ((PointerEvent) -> Unit)?) { onPointerLeaveCallback = listener }
     override fun setOnWheel(listener: ((WheelEvent) -> Unit)?) { onWheelCallback = listener }
     override fun setOnKeyDown(listener: ((KeyEvent) -> Unit)?) { onKeyDownCallback = listener }
+    internal fun hasKeyDownListener(): Boolean = onKeyDownCallback != null
     override fun setOnKeyUp(listener: ((KeyEvent) -> Unit)?) { onKeyUpCallback = listener }
+    internal fun hasKeyUpListener(): Boolean = onKeyUpCallback != null
 
     override fun dispose() {
         nativeWidget.remove()

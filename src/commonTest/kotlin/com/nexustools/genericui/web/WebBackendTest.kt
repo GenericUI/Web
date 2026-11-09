@@ -414,16 +414,18 @@ class WebBackendTest {
         val overlayDom = (overlayLayered.nativeImpl as WebBaseNativeImpl).nativeWidget
         assertFalse(overlayDom.enumClasses.contains("position-relative"))
         assertFalse(overlayDom.classList.contains("position-relative"))
-        assertEquals("absolute", overlayLayered.getStyleProperty("position"))
-        assertEquals("0", overlayLayered.getStyleProperty("top")?.removeSuffix("px"))
-        assertEquals("0", overlayLayered.getStyleProperty("left")?.removeSuffix("px"))
-        assertEquals("100%", overlayLayered.getStyleProperty("width"))
-        assertEquals("100%", overlayLayered.getStyleProperty("height"))
+        assertEquals("absolute", overlayDom.getStyle("position"))
+        assertEquals("0", overlayDom.getStyle("top")?.removeSuffix("px"))
+        assertEquals("0", overlayDom.getStyle("left")?.removeSuffix("px"))
+        assertEquals("100%", overlayDom.getStyle("width"))
+        assertEquals("100%", overlayDom.getStyle("height"))
 
         val customRatio = AspectRatioContainer(widthRatio = 2f, heightRatio = 1f)
+        window.addChild(customRatio)
         assertTrue(customRatio.hasClass("ratio"))
         assertEquals(2f, customRatio.effectiveAspectRatio, 0.001f)
-        assertEquals("50%", customRatio.getStyleProperty("--bs-aspect-ratio"))
+        val customRatioDom = (customRatio.nativeImpl as WebBaseNativeImpl).nativeWidget
+        assertEquals("50%", customRatioDom.getStyle("--bs-aspect-ratio"))
 
         val dialog = factory.createDialogWindow() as WebDialogWindowImpl
         dialog.setTitle("Settings")
@@ -602,5 +604,59 @@ class WebBackendTest {
         assertFalse(com.nexustools.genericui.event.InputFocusManager.isTypingInTextInput)
         rootDom.dispatchEvent("keydown", com.nexustools.genericui.event.KeyEvent(key = " ", code = "Space"))
         assertEquals(2, shortcutTriggered)
+    }
+
+    @Test
+    fun testElementFullscreenExitOnSingleClickAfterViewportResize() {
+        val factory = WebNativeFactory()
+        GenericUI.activeFactory = factory
+        factory.createApplication()
+        val window = Window("Fullscreen Test")
+        val primaryVideoStack = LayeredContainer()
+        var fullscreenChangedCalls = 0
+        var lastElementFullscreenState = false
+        primaryVideoStack.onFullscreenChanged = { isFs ->
+            fullscreenChangedCalls++
+            lastElementFullscreenState = isFs
+        }
+        window.addChild(primaryVideoStack)
+        window.show()
+
+        // 1. Enter element fullscreen via toggleFullscreen()
+        val entered = primaryVideoStack.toggleFullscreen()
+        assertTrue(entered, "Expected first toggleFullscreen() to enter fullscreen")
+        assertTrue(primaryVideoStack.isFullscreen(), "Expected primaryVideoStack.isFullscreen() to be true")
+        assertTrue(window.isFullscreen(), "Expected window.isFullscreen() to be true")
+        assertSame(primaryVideoStack, window.fullscreenElement)
+        assertTrue(lastElementFullscreenState)
+        assertEquals(1, fullscreenChangedCalls)
+
+        // 2. Simulate browser viewport resize into fullscreen dimensions (e.g., 1920x1080) and post-layout pass
+        val webWinImpl = window.nativeImpl as WebWindowImpl
+        webWinImpl.setWindowSize(com.nexustools.genericui.geometry.Size(1920, 1080))
+        webWinImpl.notifyPostLayoutResize()
+
+        // Fullscreen state MUST remain true after viewport resize!
+        assertTrue(primaryVideoStack.isFullscreen(), "Viewport resize during fullscreen must not clear primaryVideoStack.isFullscreen()")
+        assertTrue(window.isFullscreen(), "Viewport resize during fullscreen must not clear window.isFullscreen()")
+        assertSame(primaryVideoStack, window.fullscreenElement)
+        assertTrue(lastElementFullscreenState)
+        assertEquals(1, fullscreenChangedCalls)
+
+        // 3. Clicking the fullscreen button ONCE must exit fullscreen immediately
+        val exited = primaryVideoStack.toggleFullscreen()
+        assertFalse(exited, "Expected single toggleFullscreen() call to exit fullscreen")
+        assertFalse(primaryVideoStack.isFullscreen(), "Expected primaryVideoStack.isFullscreen() to be false after single click")
+        assertFalse(window.isFullscreen(), "Expected window.isFullscreen() to be false after single click")
+        assertFalse(lastElementFullscreenState)
+        assertEquals(2, fullscreenChangedCalls)
+
+        // 4. Also verify browser-initiated fullscreen exit (e.g., Escape key firing fullscreenchange -> false)
+        assertTrue(primaryVideoStack.toggleFullscreen())
+        assertTrue(primaryVideoStack.isFullscreen())
+        WebBrowserDomBridge.dispatchFullscreenChange(false)
+        assertFalse(primaryVideoStack.isFullscreen(), "Browser fullscreenchange(false) must clear element fullscreen state")
+        assertFalse(window.isFullscreen(), "Browser fullscreenchange(false) must clear window fullscreen state")
+        assertFalse(lastElementFullscreenState)
     }
 }

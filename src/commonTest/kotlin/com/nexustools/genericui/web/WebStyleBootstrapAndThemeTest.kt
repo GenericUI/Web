@@ -3,16 +3,23 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapHeight
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.BootstrapWidth
+import com.nexustools.genericui.enums.bootstrap.DisplayMode
+import com.nexustools.genericui.enums.bootstrap.FlexDirection
+import com.nexustools.genericui.enums.bootstrap.JustifyContent
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.enums.css.CssCursor
+import com.nexustools.genericui.enums.css.CssDisplay
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssCustomCursor
+import com.nexustools.genericui.style.css.CssEdgeLengths
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.css.CssProperty
 import com.nexustools.genericui.style.css.CssStyleSheet
@@ -21,6 +28,7 @@ import com.nexustools.genericui.style.theme.SystemThemeDetector
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -184,14 +192,100 @@ class WebStyleBootstrapAndThemeTest {
 
         val btnImpl = factory.createButton() as WebButtonImpl
         val computed = ComputedStyle(
-            rawDeclarations = mapOf(
-                "background-color" to "rgb(255, 0, 0)",
-                "min-height" to "100%"
-            )
+            backgroundColor = RgbaColor(255, 0, 0),
+            minHeight = "100%"
         )
         btnImpl.applyComputedStyle(computed)
 
         assertNull(btnImpl.nativeWidget.getStyle("background-color"))
         assertNull(btnImpl.nativeWidget.getStyle("min-height"))
+    }
+
+    @Test
+    fun testWebCssStyleTranslatorTranslatesTypedComponentStyleAndBootstrapProperties() {
+        val style = com.nexustools.genericui.style.css.ComponentStyle().apply {
+            setBackgroundColor(RgbaColor(13, 110, 253), important = true)
+            setTextColor(RgbaColor(255, 255, 255))
+            setWidth(CssLength.px(240f))
+            setHeight(CssLength.percent(50f))
+            setPadding(CssEdgeLengths.symmetric(CssLength.px(8f), CssLength.px(16f)))
+            setBorderRadius(CssCornerRadii.px(10f))
+            setDisplay(CssDisplay.FLEX)
+            setFlexDirection(FlexDirection.ROW)
+            setJustifyContent(JustifyContent.BETWEEN)
+            setAlignItems(AlignItems.CENTER)
+            setGap(CssLength.px(12f))
+            setZIndex(42)
+        }
+
+        val decls = com.nexustools.genericui.web.style.WebCssStyleTranslator.toInlineCssDeclarations(style)
+        assertEquals("rgb(13, 110, 253)" to true, decls["background-color"])
+        assertEquals("rgb(255, 255, 255)" to false, decls["color"])
+        assertEquals("240px" to false, decls["width"])
+        assertEquals("50%" to false, decls["height"])
+        assertEquals("8px 16px" to false, decls["padding"])
+        assertEquals("10px" to false, decls["border-radius"])
+        assertEquals("flex" to false, decls["display"])
+        assertEquals("row" to false, decls["flex-direction"])
+        assertEquals("space-between" to false, decls["justify-content"])
+        assertEquals("center" to false, decls["align-items"])
+        assertEquals("12px" to false, decls["gap"])
+        assertEquals("42" to false, decls["z-index"])
+
+        val inlineCss = com.nexustools.genericui.web.style.WebCssStyleTranslator.toInlineCssString(style)
+        assertTrue(inlineCss.contains("background-color: rgb(13, 110, 253) !important"))
+        assertTrue(inlineCss.contains("width: 240px"))
+
+        val bootstrap = com.nexustools.genericui.style.bootstrap.ComponentBootstrap().apply {
+            setType(BootstrapType.SUCCESS)
+            setOutline(true)
+            setSize(BootstrapSize.SM)
+            setDisplay(DisplayMode.FLEX)
+            setMargin(SpacingScale.TWO)
+        }
+        val bsClasses = com.nexustools.genericui.web.style.WebCssStyleTranslator.toBootstrapClassSet(bootstrap, "btn")
+        assertTrue("btn" in bsClasses)
+        assertTrue("btn-outline-success" in bsClasses)
+        assertTrue("btn-sm" in bsClasses)
+        assertTrue("d-flex" in bsClasses)
+        assertTrue("m-2" in bsClasses)
+    }
+
+    @Test
+    fun testRuntimeThemeConfigAndSetThemeColorInjectAndUpdateRuntimeThemeStyleElement() {
+        WebStyleSheetManager.clear()
+        val factory = WebNativeFactory()
+        val appImpl = factory.createApplication() as WebApplicationImpl
+
+        assertNull(WebStyleSheetManager.getRuntimeThemeStyleElement())
+
+        appImpl.setThemeColor("#e83e8c")
+        val afterThemeColorEl = WebStyleSheetManager.getRuntimeThemeStyleElement()
+        assertNotNull(afterThemeColorEl)
+        assertEquals(WebStyleSheetManager.RUNTIME_THEME_STYLE_ID, afterThemeColorEl.id)
+        assertTrue(afterThemeColorEl.textContent.contains("--bs-primary: #e83e8c;"))
+        assertTrue(afterThemeColorEl.textContent.contains(".btn-primary"))
+        assertTrue(appImpl.nativeApplication.children.none { it.tagName == "style" })
+
+        val customConfig = com.nexustools.genericui.style.theme.ThemeConfig(
+            mode = ThemeMode.DARK,
+            colors = com.nexustools.genericui.style.theme.ThemeColorSet(
+                primary = RgbaColor(32, 201, 151),
+                secondary = RgbaColor(108, 117, 125),
+                danger = RgbaColor(220, 53, 69)
+            )
+        )
+        appImpl.setThemeConfig(customConfig)
+        assertEquals("dark", appImpl.appliedBootstrapTheme)
+        val afterConfigEl = WebStyleSheetManager.getHeadStyleSheetLink(WebStyleSheetManager.RUNTIME_THEME_STYLE_ID)
+        assertNotNull(afterConfigEl)
+        val css = afterConfigEl.textContent
+        assertTrue(css.contains("--bs-primary: #20c997;"))
+        assertTrue(css.contains("--bs-secondary: #6c757d;"))
+        assertTrue(css.contains("--bs-danger: #dc3545;"))
+        assertTrue(css.contains(".btn-primary"))
+        assertTrue(css.contains(".bg-primary"))
+        assertTrue(css.contains(".text-primary"))
+        assertTrue(css.contains(".border-primary"))
     }
 }

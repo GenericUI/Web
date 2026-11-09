@@ -4,6 +4,7 @@ import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.MenuBarNativeImpl
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
@@ -161,18 +162,57 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
                 if (w != lastNotifiedWidthPx || h != lastNotifiedHeightPx) {
                     lastNotifiedWidthPx = w
                     lastNotifiedHeightPx = h
-                    onResizeListener?.invoke(WindowConfiguration(widthPx = w, heightPx = h))
+                    onResizeListener?.invoke(currentWindowConfiguration(w, h))
                 }
+            }
+        }
+        WebBrowserDomBridge.registerFullscreenChange { isBrowserFullscreen ->
+            if (!isBrowserFullscreen && fullscreenFlag) {
+                setFullscreen(false)
+                onResizeListener?.invoke(currentWindowConfiguration(windowSize.width, windowSize.height))
             }
         }
         WebBrowserDomBridge.registerWindowKeyEvents(
             onKeyDown = { ke ->
-                activeWindow?.nativeWidget?.dispatchFromBrowser("keydown", ke)
+                val root = activeWindow?.nativeWidget ?: return@registerWindowKeyEvents
+                root.dispatchFromBrowser("keydown", ke)
+                dispatchKeyEventToDescendants(root, "keydown", ke, isKeyDown = true)
             },
             onKeyUp = { ke ->
-                activeWindow?.nativeWidget?.dispatchFromBrowser("keyup", ke)
+                val root = activeWindow?.nativeWidget ?: return@registerWindowKeyEvents
+                root.dispatchFromBrowser("keyup", ke)
+                dispatchKeyEventToDescendants(root, "keyup", ke, isKeyDown = false)
             }
         )
+    }
+
+    private fun dispatchKeyEventToDescendants(
+        root: WebDomElement,
+        type: String,
+        event: KeyEvent,
+        isKeyDown: Boolean
+    ) {
+        val stack = ArrayList<WebDomElement>(root.children.size)
+        for (i in root.children.lastIndex downTo 0) {
+            stack.add(root.children[i])
+        }
+        while (stack.isNotEmpty()) {
+            val el = stack.removeAt(stack.lastIndex)
+            val impl = el.ownerNativeImpl as? WebBaseNativeImpl
+            if (impl != null && (!impl.isVisible() || !impl.isEnabled())) continue
+            if (el.style["display"] == "none" || el.attributes["disabled"] != null) continue
+            val hasListener = if (impl != null) {
+                if (isKeyDown) impl.hasKeyDownListener() else impl.hasKeyUpListener()
+            } else {
+                el.eventListeners[type]?.isNotEmpty() == true
+            }
+            if (hasListener) {
+                el.dispatchFromBrowser(type, event)
+            }
+            for (i in el.children.lastIndex downTo 0) {
+                stack.add(el.children[i])
+            }
+        }
     }
 
     private fun ensureNonMainBootstrapModalStructure() {
@@ -235,6 +275,15 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         nativeWidget.appendChild(modalDialog)
     }
 
+    private fun currentWindowConfiguration(widthPx: Int, heightPx: Int): WindowConfiguration =
+        WindowConfiguration(
+            widthPx = widthPx,
+            heightPx = heightPx,
+            windowState = if (fullscreenFlag) WindowState.FULLSCREEN else windowState,
+            isFullscreen = fullscreenFlag,
+            isInPictureInPicture = pipActive
+        )
+
     internal fun notifyPostLayoutResize() {
         if (isNonMainModalWindow) return
         val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
@@ -245,7 +294,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         if (vw != lastNotifiedWidthPx || vh != lastNotifiedHeightPx) {
             lastNotifiedWidthPx = vw
             lastNotifiedHeightPx = vh
-            onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+            onResizeListener?.invoke(currentWindowConfiguration(vw, vh))
         }
     }
 
@@ -324,7 +373,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         if (listener != null) {
             lastNotifiedWidthPx = resolvedSize.width
             lastNotifiedHeightPx = resolvedSize.height
-            listener.invoke(WindowConfiguration(widthPx = resolvedSize.width, heightPx = resolvedSize.height))
+            listener.invoke(currentWindowConfiguration(resolvedSize.width, resolvedSize.height))
         }
     }
 
@@ -586,7 +635,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
             nativeWidget.clientHeight = vh
             lastNotifiedWidthPx = vw
             lastNotifiedHeightPx = vh
-            onResizeListener?.invoke(WindowConfiguration(widthPx = vw, heightPx = vh))
+            onResizeListener?.invoke(currentWindowConfiguration(vw, vh))
         } else if (alwaysOnTopOfOwnerFlag) {
             WebBrowserDomBridge.installModalFocusTrap(nativeWidget)
         }

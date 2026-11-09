@@ -2,6 +2,7 @@ package com.nexustools.genericui.web
 
 import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.res.DataUrlCodec
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.resources.ResourceID
@@ -9,6 +10,8 @@ import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.css.StyleSheetRegistry
+import com.nexustools.genericui.style.theme.SystemThemeDetector
+import com.nexustools.genericui.style.theme.ThemeConfig
 
 /**
  * Manages `<link rel="stylesheet" href="...">` elements in `document.head` (via [WebBrowserDomBridge])
@@ -20,10 +23,13 @@ import com.nexustools.genericui.style.css.StyleSheetRegistry
  */
 object WebStyleSheetManager {
 
+    const val RUNTIME_THEME_STYLE_ID: String = "genericui-runtime-theme-css"
+
     private val activeLinksByHref = linkedMapOf<String, WebDomElement>()
     private val activeHrefsByResourceId = linkedMapOf<Int, String>()
     private val parsedStyleSheetsByResourceId = linkedMapOf<Int, CssStyleSheet>()
     private val parsedStyleSheetsByHref = linkedMapOf<String, CssStyleSheet>()
+    private var runtimeThemeStyleElement: WebDomElement? = null
 
     private fun isBuiltInStyleSheetResourceId(resourceId: ResourceID): Boolean =
         resourceId.id == Resources.GENERICUI.id ||
@@ -118,6 +124,51 @@ object WebStyleSheetManager {
             return candidateHref
         }
         return normalizeCssHref("styles/style_${resourceId.id}.css")
+    }
+
+    /**
+     * Resolves a CSS href or `data:text/css;base64,...` Data-URL for [styleSheet] without mounting
+     * any `<link>` into the host `document.head` ([activeLinksByHref]).
+     *
+     * Used by [WebBookContainerImpl] so [com.nexustools.genericui.component.document.BookContainer]
+     * stylesheets remain completely isolated inside the book `<iframe>`.
+     */
+    fun resolveIsolatedStyleSheetHref(styleSheet: PrecompiledStyleSheet): String {
+        canonicalBuiltInHref(styleSheet.cssResourcePath)?.let { return it }
+        canonicalBuiltInHref(styleSheet.sourcePath)?.let { return it }
+
+        val inlineCss = styleSheet.rawCss.ifBlank { styleSheet.styleSheet.sourceCssText }
+        if (inlineCss.isNotBlank()) {
+            return DataUrlCodec.encodeUtf8Text(inlineCss, "text/css")
+        }
+
+        val matchingResId = Resources.activeTable.findResourceId(
+            com.nexustools.genericui.resources.ResourceType.STYLE,
+            styleSheet.name
+        )
+        if (matchingResId != null) {
+            val resolvedText = WebResourceResolverImpl.resolveText(matchingResId)
+            if (!resolvedText.isNullOrBlank()) {
+                return DataUrlCodec.encodeUtf8Text(resolvedText, "text/css")
+            }
+            val resolvedUrl = WebResourceResolverImpl.resolveResourceUrl(matchingResId)
+            if (DataUrlCodec.isDataUrl(resolvedUrl)) {
+                return ensureCssDataUrl(resolvedUrl)
+            }
+        }
+
+        for (candidate in listOf(
+            styleSheet.sourcePath,
+            styleSheet.cssResourcePath,
+            styleSheet.name,
+            "res://style/${styleSheet.name}"
+        )) {
+            if (candidate.isNotBlank()) {
+                resolvePreloadedCssDataUrlByPath(candidate)?.let { return it }
+            }
+        }
+
+        return resolveCssHref(styleSheet)
     }
 
     /**
@@ -498,11 +549,71 @@ object WebStyleSheetManager {
 
     fun getActiveLinkElements(): List<WebDomElement> = activeLinksByHref.values.toList()
 
+    fun getRuntimeThemeStyleElement(): WebDomElement? = runtimeThemeStyleElement
+
+    fun getRuntimeThemeCss(): String = runtimeThemeStyleElement?.textContent.orEmpty()
+
+    /**
+     * Generates Bootstrap 5 CSS custom property and semantic class overrides from [themeConfig]
+     * (`themeConfig.generateWebBootstrapOverrideCss()`) and injects/updates `<style id="genericui-runtime-theme-css">`
+     * in `<head>` (after `bootstrap.min.css` and `genericui.css`).
+     *
+     * Note: Per `:web` architecture rules, `<style>` elements are never appended inside `<genericui:app>`.
+     */
+    fun applyThemeConfigOverrides(
+        document: WebDomElement? = WebApplicationImpl.activeApplication?.nativeApplication,
+        themeConfig: ThemeConfig,
+        resolvedTheme: ThemeMode = SystemThemeDetector.resolveTheme(themeConfig.mode)
+    ): WebDomElement? {
+        if (!themeConfig.styleSheet.isNullOrBlank()) {
+            addStyleSheet(themeConfig.styleSheet!!, document)
+        }
+        if (!themeConfig.hasColorOverrides) {
+            runtimeThemeStyleElement?.remove()
+            runtimeThemeStyleElement = null
+            WebBrowserDomBridge.setHeadStyleElement(RUNTIME_THEME_STYLE_ID, null)
+            return null
+        }
+
+        val css = themeConfig.generateWebBootstrapOverrideCss()
+        val styleEl = runtimeThemeStyleElement ?: WebDomElement("style").also {
+            it.id = RUNTIME_THEME_STYLE_ID
+            runtimeThemeStyleElement = it
+        }
+        styleEl.id = RUNTIME_THEME_STYLE_ID
+        styleEl.setAttribute("data-genericui-resolved-theme", if (resolvedTheme == ThemeMode.LIGHT) "light" else "dark")
+        styleEl.textContent = css
+        if (document != null && !document.tagName.equals(WebNamespaceSpec.APP_TAG, ignoreCase = true)) {
+            val headTarget = if (document.tagName.equals("head", ignoreCase = true)) {
+                document
+            } else {
+                document.children.firstOrNull { it.tagName.equals("head", ignoreCase = true) }
+            }
+            if (headTarget != null && styleEl !in headTarget.children) {
+                headTarget.appendChild(styleEl)
+            }
+        }
+        WebBrowserDomBridge.setHeadStyleElement(RUNTIME_THEME_STYLE_ID, css)
+        return styleEl
+    }
+
+    fun applyThemeConfigOverrides(
+        themeConfig: ThemeConfig,
+        resolvedTheme: ThemeMode = SystemThemeDetector.resolveTheme(themeConfig.mode)
+    ): WebDomElement? = applyThemeConfigOverrides(
+        document = WebApplicationImpl.activeApplication?.nativeApplication,
+        themeConfig = themeConfig,
+        resolvedTheme = resolvedTheme
+    )
+
     fun getHeadStyleSheetLinks(): List<WebDomElement> = activeLinksByHref.values.toList()
 
     fun getHeadStyleSheetLink(hrefOrId: String): WebDomElement? {
         val trimmed = hrefOrId.trim()
         if (trimmed.isEmpty()) return null
+        if (trimmed == RUNTIME_THEME_STYLE_ID || trimmed == "#$RUNTIME_THEME_STYLE_ID") {
+            return runtimeThemeStyleElement
+        }
         activeLinksByHref[trimmed]?.let { return it }
         val normalized = normalizeCssHref(trimmed)
         activeLinksByHref[normalized]?.let { return it }
@@ -520,5 +631,8 @@ object WebStyleSheetManager {
         activeHrefsByResourceId.clear()
         parsedStyleSheetsByResourceId.clear()
         parsedStyleSheetsByHref.clear()
+        runtimeThemeStyleElement?.remove()
+        runtimeThemeStyleElement = null
+        WebBrowserDomBridge.setHeadStyleElement(RUNTIME_THEME_STYLE_ID, null)
     }
 }

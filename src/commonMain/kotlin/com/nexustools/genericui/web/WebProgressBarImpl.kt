@@ -9,6 +9,7 @@ import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
 class WebProgressBarImpl : WebBaseNativeImpl("genericui:progressbar", "progress"), ProgressBarNativeImpl<WebDomElement> {
     private var progressValue: Float = 0f
     private var indeterminateFlag: Boolean = false
+    private var busyState: Boolean = false
 
     val barElement = WebDomElement("div").apply {
         classList.add("progress-bar")
@@ -27,7 +28,13 @@ class WebProgressBarImpl : WebBaseNativeImpl("genericui:progressbar", "progress"
         progressValue = progress.coerceIn(0f, 1f)
         val pct = (progressValue * 100f).toInt()
         nativeWidget.setAttribute("aria-valuenow", pct.toString())
-        barElement.style["width"] = if (indeterminateFlag && pct == 0) "100%" else "$pct%"
+        if (busyState) {
+            nativeWidget.classList.add("genericui-progress-busy")
+            barElement.classList.add("genericui-progress-bar-busy")
+            barElement.style["width"] = "30%"
+        } else {
+            barElement.style["width"] = if (indeterminateFlag && pct == 0) "100%" else "$pct%"
+        }
     }
 
     override fun getProgress(): Float = progressValue
@@ -39,7 +46,11 @@ class WebProgressBarImpl : WebBaseNativeImpl("genericui:progressbar", "progress"
             nativeWidget.classList.add("progress-bar-striped")
             barElement.classList.add("progress-bar-animated")
             barElement.classList.add("progress-bar-striped")
-            if (progressValue == 0f) {
+            if (busyState) {
+                nativeWidget.classList.add("genericui-progress-busy")
+                barElement.classList.add("genericui-progress-bar-busy")
+                barElement.style["width"] = "30%"
+            } else if (progressValue == 0f) {
                 barElement.style["width"] = "100%"
             }
         } else {
@@ -47,11 +58,38 @@ class WebProgressBarImpl : WebBaseNativeImpl("genericui:progressbar", "progress"
             nativeWidget.classList.remove("progress-bar-striped")
             barElement.classList.remove("progress-bar-animated")
             barElement.classList.remove("progress-bar-striped")
-            barElement.style["width"] = "${(progressValue * 100f).toInt()}%"
+            if (busyState) {
+                nativeWidget.classList.add("genericui-progress-busy")
+                barElement.classList.add("genericui-progress-bar-busy")
+                barElement.style["width"] = "30%"
+            } else {
+                barElement.style["width"] = "${(progressValue * 100f).toInt()}%"
+            }
         }
     }
 
     override fun isIndeterminate(): Boolean = indeterminateFlag
+
+    override fun setBusy(busy: Boolean) {
+        busyState = busy
+        if (busy) {
+            nativeWidget.classList.add("genericui-progress-busy")
+            barElement.classList.add("genericui-progress-bar-busy")
+            nativeWidget.setAttribute("data-busy", "true")
+            nativeWidget.setAttribute("aria-busy", "true")
+            barElement.style["width"] = "30%"
+        } else {
+            nativeWidget.classList.remove("genericui-progress-busy")
+            barElement.classList.remove("genericui-progress-bar-busy")
+            nativeWidget.removeAttribute("data-busy")
+            nativeWidget.removeAttribute("aria-busy")
+            val pct = (progressValue * 100f).toInt()
+            nativeWidget.setAttribute("aria-valuenow", pct.toString())
+            barElement.style["width"] = if (indeterminateFlag) "100%" else "$pct%"
+        }
+    }
+
+    override fun isBusy(): Boolean = busyState
 
     override fun setLabel(label: String?) {
         barElement.textContent = label ?: ""

@@ -7,11 +7,13 @@ plugins {
 kotlin {
     js {
         browser()
+        nodejs()
     }
 
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
         browser()
+        nodejs()
     }
 
     sourceSets {

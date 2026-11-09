@@ -19,19 +19,43 @@ import com.nexustools.genericui.enums.document.PrintPageSize
     "    head.appendChild(styleEl); " +
     "  } " +
     "  styleEl.textContent = css; " +
-    "  if (!head.__genericUiHostStylesCopied && document && document.head) { " +
-    "    const nodes = document.head.querySelectorAll(\"link[rel='stylesheet'], style\"); " +
-    "    for (let i = 0; i < nodes.length; i++) { " +
-    "      const clone = nodes[i].cloneNode(true); " +
-    "      clone.setAttribute('data-genericui-cloned', 'true'); " +
-    "      head.insertBefore(clone, styleEl); " +
-    "    } " +
-    "    head.__genericUiHostStylesCopied = true; " +
-    "  } " +
     "} " +
     "return true; " +
     "}")
 private external fun wasmPrepareIframeDoc(iframePeer: JsAny, title: String, css: String): Boolean
+
+@JsFun("(iframePeer, joinedHrefs) => { " +
+    "const doc = iframePeer.contentDocument || (iframePeer.contentWindow && iframePeer.contentWindow.document); " +
+    "if (!doc || !doc.head) return; " +
+    "const head = doc.head; " +
+    "const desired = joinedHrefs ? joinedHrefs.split('\\n').map(s => s.trim()).filter(s => s.length > 0) : []; " +
+    "const existingNodes = head.querySelectorAll(\"link[data-genericui-book-style='true']\"); " +
+    "const existingByHref = new Map(); " +
+    "for (let i = 0; i < existingNodes.length; i++) { " +
+    "  const node = existingNodes[i]; " +
+    "  const href = (node.getAttribute('href') || '').trim(); " +
+    "  if (!href || desired.indexOf(href) === -1 || existingByHref.has(href)) { " +
+    "    head.removeChild(node); " +
+    "  } else { " +
+    "    existingByHref.set(href, node); " +
+    "  } " +
+    "} " +
+    "const printStyleEl = doc.getElementById('genericui-book-print-style'); " +
+    "for (let i = 0; i < desired.length; i++) { " +
+    "  const href = desired[i]; " +
+    "  if (existingByHref.has(href)) continue; " +
+    "  const linkEl = doc.createElement('link'); " +
+    "  linkEl.setAttribute('rel', 'stylesheet'); " +
+    "  linkEl.setAttribute('data-genericui-book-style', 'true'); " +
+    "  linkEl.setAttribute('href', href); " +
+    "  if (printStyleEl && printStyleEl.parentNode === head) { " +
+    "    head.insertBefore(linkEl, printStyleEl); " +
+    "  } else { " +
+    "    head.appendChild(linkEl); " +
+    "  } " +
+    "} " +
+    "}")
+private external fun wasmSyncBookStyleSheets(iframePeer: JsAny, joinedHrefs: String)
 
 @JsFun("(iframePeer, childPeer) => { " +
     "const doc = iframePeer.contentDocument || (iframePeer.contentWindow && iframePeer.contentWindow.document); " +
@@ -86,18 +110,43 @@ actual object WebPrintIframeBridge {
         return """
             @page { size: ${wMm}mm ${hMm}mm; margin: ${marginMm}mm; }
             * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-            html, body { margin: 0; padding: 0; width: 100%; background: transparent; }
+            html {
+                min-width: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                background: transparent;
+            }
+            body {
+                min-width: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+                overflow-y: visible !important;
+                background: transparent !important;
+                background-image: none !important;
+            }
             .book-page {
-                width: 100%;
+                width: ${wMm}mm;
                 max-width: 100%;
+                min-height: ${hMm}mm;
                 margin: 0 auto 16px auto;
-                padding: 0;
+                padding: ${marginMm}mm;
                 background: #ffffff;
                 color: #000000;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.18);
                 position: relative;
                 page-break-after: always;
                 break-after: page;
-                overflow: hidden;
+                page-break-inside: avoid;
+                break-inside: avoid;
+                overflow: visible;
             }
             .book-page:last-child {
                 margin-bottom: 0;
@@ -105,19 +154,45 @@ actual object WebPrintIframeBridge {
                 break-after: auto;
             }
             .book-page img {
-                max-width: 100%;
-                width: 100%;
-                height: auto;
-                display: block;
+                max-width: 100% !important;
+                width: 100% !important;
+                height: auto !important;
+                display: block !important;
             }
             @media print {
-                html, body { background: #ffffff; }
+                html, body {
+                    min-width: 0 !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    min-height: 0 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    overflow: visible !important;
+                    background: #ffffff !important;
+                    background-image: none !important;
+                }
                 .book-page {
-                    width: ${wMm}mm;
-                    min-height: ${hMm}mm;
-                    margin: 0 auto;
-                    padding: ${marginMm}mm;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    height: auto !important;
+                    min-height: 0 !important;
+                    margin: 0 auto !important;
+                    padding: ${marginMm}mm !important;
                     box-shadow: none !important;
+                    overflow: visible !important;
+                    page-break-after: always !important;
+                    break-after: page !important;
+                    page-break-inside: avoid !important;
+                    break-inside: avoid !important;
+                }
+                .book-page:last-child {
+                    margin-bottom: 0 !important;
+                    page-break-after: auto !important;
+                    break-after: auto !important;
+                }
+                .book-page img {
+                    max-height: 100vh !important;
+                    object-fit: contain !important;
                 }
             }
         """.trimIndent()
@@ -128,15 +203,18 @@ actual object WebPrintIframeBridge {
         documentTitle: String,
         pageSize: PrintPageSize,
         orientation: PrintPageOrientation,
-        marginMm: Float
+        marginMm: Float,
+        styleSheetHrefs: List<String>?
     ) {
         val css = buildIframeStylesheet(pageSize, orientation, marginMm)
         iframeElement.setAttribute("data-iframe-css", css)
+        val effectiveHrefs = styleSheetHrefs ?: parseBookStyleSheetHrefs(iframeElement)
+        iframeElement.setAttribute("data-book-stylesheets", effectiveHrefs.joinToString("\n"))
         if (iframeElement.getAttribute("title").isNullOrBlank()) {
             iframeElement.setAttribute("title", documentTitle)
         }
         if (!WebBrowserDomBridge.isBrowserEnvironment) return
-        syncMountedBookIframe(iframeElement, documentTitle)
+        syncMountedBookIframe(iframeElement, documentTitle, effectiveHrefs)
     }
 
     actual fun syncMountedSubtreeIframes(rootElement: WebDomElement) {
@@ -151,9 +229,17 @@ actual object WebPrintIframeBridge {
         }
     }
 
+    private fun parseBookStyleSheetHrefs(iframeElement: WebDomElement): List<String> =
+        iframeElement.getAttribute("data-book-stylesheets")
+            ?.lines()
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+
     private fun syncMountedBookIframe(
         iframeElement: WebDomElement,
-        explicitTitle: String? = null
+        explicitTitle: String? = null,
+        styleSheetHrefs: List<String>? = null
     ) {
         if (!WebBrowserDomBridge.isBrowserEnvironment) return
         val iframePeer = iframeElement.browserPeer as? JsAny ?: return
@@ -165,8 +251,10 @@ actual object WebPrintIframeBridge {
             val resolvedTitle = explicitTitle
                 ?: iframeElement.getAttribute("title")
                 ?: "Document"
+            val effectiveHrefs = styleSheetHrefs ?: parseBookStyleSheetHrefs(iframeElement)
             val ready = wasmPrepareIframeDoc(iframePeer, resolvedTitle, css)
             if (ready) {
+                wasmSyncBookStyleSheets(iframePeer, effectiveHrefs.joinToString("\n"))
                 for (pageElement in iframeElement.children) {
                     val childPeer = pageElement.browserPeer as? JsAny ?: continue
                     wasmAppendChildToIframeBody(iframePeer, childPeer)

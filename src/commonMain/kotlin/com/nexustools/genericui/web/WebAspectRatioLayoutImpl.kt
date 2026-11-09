@@ -2,6 +2,7 @@ package com.nexustools.genericui.web
 
 import com.nexustools.genericui.component.layout.AspectRatioLayout
 import com.nexustools.genericui.component.layout.DefaultAspectRatioLayoutImpl
+import kotlin.math.roundToInt
 
 /**
  * Web (`js` + `wasmJs`) implementation of [DefaultAspectRatioLayoutImpl] that maps [AspectRatioLayout.host]
@@ -14,6 +15,7 @@ class WebAspectRatioLayoutImpl(
 
     override fun syncAspectRatio() {
         super.syncAspectRatio()
+        syncBootstrapAspectRatioVar()
     }
 
     override fun syncLayout(
@@ -23,5 +25,20 @@ class WebAspectRatioLayoutImpl(
     ) {
         super.syncLayout(viewportWidthDp, viewportHeightDp, smallestScreenWidthDp)
         layout.syncHostAspectRatioClassesAndStyles()
+        syncBootstrapAspectRatioVar()
+    }
+
+    private fun syncBootstrapAspectRatioVar() {
+        val element = layout.host.nativeImpl?.nativeWidget as? WebDomElement ?: return
+        val numericRatio = layout.effectiveAspectRatio
+        if (numericRatio > 0f) {
+            val scaled = ((1f / numericRatio) * 10000f).roundToInt()
+            val percentStr = if (scaled % 100 == 0) {
+                "${scaled / 100}%"
+            } else {
+                "${scaled / 100f}%"
+            }
+            element.setStyle("--bs-aspect-ratio", percentStr, false)
+        }
     }
 }

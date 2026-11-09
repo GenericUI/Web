@@ -43,6 +43,7 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
                 colorSpace = buf.colorSpace
             )
         }
+        val effectiveUri = source.uriOrPath ?: source.resId?.toResourceUri()
         val bytes = resolveImmediateBytesWithoutCaching(source)
         if (bytes != null && bytes.isNotEmpty()) {
             val detected = ImageFormat.detectFromHeader(bytes)
@@ -54,10 +55,11 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
             }
             if (WebBrowserDomBridge.isBrowserEnvironment) {
                 WebBrowserDomBridge.decodePreloadedBrowserImage(
-                    uriOrKey = source.uriOrPath,
+                    uriOrKey = effectiveUri,
                     encodedBytes = bytes,
                     targetWidth = null,
-                    targetHeight = null
+                    targetHeight = null,
+                    preserveAspectRatio = true
                 )?.let { preloaded ->
                     return ImageMetadata(
                         width = preloaded.width,
@@ -70,10 +72,11 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
             }
         } else if (WebBrowserDomBridge.isBrowserEnvironment) {
             WebBrowserDomBridge.decodePreloadedBrowserImage(
-                uriOrKey = source.uriOrPath,
+                uriOrKey = effectiveUri,
                 encodedBytes = source.encodedBytes,
                 targetWidth = null,
-                targetHeight = null
+                targetHeight = null,
+                preserveAspectRatio = true
             )?.let { preloaded ->
                 return ImageMetadata(
                     width = preloaded.width,
@@ -89,22 +92,35 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
 
     override fun decode(source: ImageSource, options: ImageDecodeOptions): ImageBuffer? {
         source.memoryBuffer?.let { return it.copy() }
+        val effectiveUri = source.uriOrPath ?: source.resId?.toResourceUri()
         if (WebBrowserDomBridge.isBrowserEnvironment) {
             WebBrowserDomBridge.decodePreloadedBrowserImage(
-                uriOrKey = source.uriOrPath,
+                uriOrKey = effectiveUri,
                 encodedBytes = source.encodedBytes,
                 targetWidth = options.targetWidth,
-                targetHeight = options.targetHeight
+                targetHeight = options.targetHeight,
+                preserveAspectRatio = options.preserveAspectRatio
             )?.let { return it }
+            val relPath = source.resId?.relativePath?.takeIf { it.isNotBlank() }
+            if (relPath != null) {
+                WebBrowserDomBridge.decodePreloadedBrowserImage(
+                    uriOrKey = relPath,
+                    encodedBytes = source.encodedBytes,
+                    targetWidth = options.targetWidth,
+                    targetHeight = options.targetHeight,
+                    preserveAspectRatio = options.preserveAspectRatio
+                )?.let { return it }
+            }
         }
         val bytes = resolveImmediateBytesWithoutCaching(source) ?: return null
         if (bytes.isEmpty()) return null
         if (WebBrowserDomBridge.isBrowserEnvironment && source.encodedBytes == null) {
             WebBrowserDomBridge.decodePreloadedBrowserImage(
-                uriOrKey = source.uriOrPath,
+                uriOrKey = effectiveUri,
                 encodedBytes = bytes,
                 targetWidth = options.targetWidth,
-                targetHeight = options.targetHeight
+                targetHeight = options.targetHeight,
+                preserveAspectRatio = options.preserveAspectRatio
             )?.let { return it }
         }
         return when (ImageFormat.detectFromHeader(bytes)) {
@@ -149,9 +165,14 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
             imgElement = invisibleImg,
             src = resolvedSrc,
             onLoaded = { natW, natH ->
+                val (fallbackW, fallbackH) = ImageLoader.resolveTargetDimensions(
+                    srcWidth = natW.coerceAtLeast(1),
+                    srcHeight = natH.coerceAtLeast(1),
+                    options = options
+                )
                 val decoded = decode(source, options) ?: ImageBuffer(
-                    width = options.targetWidth ?: natW.coerceAtLeast(1),
-                    height = options.targetHeight ?: natH.coerceAtLeast(1),
+                    width = fallbackW,
+                    height = fallbackH,
                     pixelFormat = options.preferredPixelFormat
                 )
                 onLoaded(decoded)
@@ -245,20 +266,51 @@ class WebBrowserImageCodecImpl : ImageCodecNativeImpl {
             }
             return DataUrlCodec.encodeBytes(bytes, mime)
         }
-        val uri = source.uriOrPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        if (uri.startsWith("res://", ignoreCase = true)) {
-            return WebBrowserDomBridge.getPreloadedResourceDataUrl(uri) ?: uri
+        val uri = (source.uriOrPath ?: source.resId?.toResourceUri())?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        WebBrowserDomBridge.getPreloadedResourceDataUrl(uri)?.let { return it }
+        source.resId?.relativePath?.takeIf { it.isNotBlank() }?.let { rel ->
+            WebBrowserDomBridge.getPreloadedResourceDataUrl(rel)?.let { return it }
+        }
+        source.resId?.let { id ->
+            com.nexustools.genericui.resources.ResourceResolver.getBytes(id)?.takeIf { it.isNotEmpty() }?.let { bytes ->
+                val fmt = ImageFormat.detectFromHeader(bytes)
+                val mime = when (fmt) {
+                    ImageFormat.JPEG -> "image/jpeg"
+                    ImageFormat.WEBP -> "image/webp"
+                    ImageFormat.GIF -> "image/gif"
+                    ImageFormat.SVG -> "image/svg+xml"
+                    else -> "image/png"
+                }
+                return DataUrlCodec.encodeBytes(bytes, mime)
+            }
         }
         return uri
     }
 
     private fun resolveImmediateBytesWithoutCaching(source: ImageSource): ByteArray? {
         source.encodedBytes?.let { return it }
-        val uri = source.uriOrPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        if (DataUrlCodec.isDataUrl(uri)) {
-            return DataUrlCodec.decodeBytes(uri)
+        val uri = (source.uriOrPath ?: source.resId?.toResourceUri())?.trim()?.takeIf { it.isNotEmpty() }
+        if (uri != null) {
+            if (DataUrlCodec.isDataUrl(uri)) {
+                return DataUrlCodec.decodeBytes(uri)
+            }
+            WebBrowserDomBridge.getPreloadedResourceBytes(uri)?.let { return it }
         }
-        return WebBrowserDomBridge.getPreloadedResourceBytes(uri)
+        source.resId?.relativePath?.takeIf { it.isNotBlank() }?.let { rel ->
+            WebBrowserDomBridge.getPreloadedResourceBytes(rel)?.let { return it }
+        }
+        source.resId?.let { id ->
+            com.nexustools.genericui.resources.ResourceResolver.getBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        if (uri != null) {
+            com.nexustools.genericui.res.Resources.activeTable.findResourceId(
+                com.nexustools.genericui.resources.ResourceType.DRAWABLE,
+                uri
+            )?.let { id ->
+                com.nexustools.genericui.resources.ResourceResolver.getBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun isInvalidSimulatedUrl(url: String): Boolean {

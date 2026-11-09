@@ -21,28 +21,29 @@ fun main() {
 }
 ```
 
-When `styles { globalStyleSheet = "styles/main.scss" }` is configured in `build.gradle.kts`, the generated startup code automatically calls `app.addStyleSheet("styles/main.scss")`, which `WebStyleSheetManager` normalizes to `"styles/main.css"` and injects as `<link rel="stylesheet" href="styles/main.css">` in `document.head`.
+When `styles { globalStyleSheet = "styles/main.scss" }` is configured in `build.gradle.kts`, the generated startup code automatically calls `app.addStyleSheet("styles/main.scss")`, which `WebStyleSheetManager` normalizes to `"styles/main.css"` and injects as `<link rel="stylesheet" href="styles/main.css">` in `document.head`. When `genericui { theme { ... } }` is configured in `build.gradle.kts`, the generated launcher also initializes `app.setThemeConfig(ThemeConfig(...))` at startup and `GenericUiWebDistributionTask` emits a build-time pre-generated `gui/genericui-theme.css` linked via `<link id="genericui-build-theme-css" rel="stylesheet" href="./gui/genericui-theme.css">` in `index.html`.
 
 ---
 
-## `WebDomElement` User CSS Class Isolation, `ComponentBootstrap`, `ComponentStyle`, & Custom Cursors
+## `WebDomElement` User CSS Class Isolation, `WebCssStyleTranslator`, `ComponentBootstrap`, `ComponentStyle`, & Custom Cursors
 
 1. **Strict Separation of `userClassList` and `enumClassList` (`WebDomElement`)**:
    - `WebDomElement` maintains two separate class sets:
      - `userClassList`: Mutated and returned **exclusively** by `addClass`, `removeClass`, `hasClass`, `getClasses()`, `getClass()`, `setClass`, and `WebDomElement.className`.
-     - `enumClassList` (`setEnumClasses`): Populated internally from `ComponentBootstrap` (`component.getBootstrap()` — e.g., `BootstrapType`, `BootstrapSize`, `BootstrapWidth`, `SpacingScale`, `FlexDirection`), remaining **100% invisible** to `getClasses()` and `hasClass()`.
+     - `enumClassList` (`setEnumClasses`): Populated internally from `ComponentBootstrap` (`component.getBootstrap()` — e.g., `BootstrapType`, `BootstrapSize`, `BootstrapWidth`, `SpacingScale`, `FlexDirection`, `FlexWrap`), remaining **100% invisible** to `getClasses()` and `hasClass()`.
    - `WebDomElement.getEffectiveDomClassName()` merges `enumClassList + userClassList` **only** when syncing the underlying browser DOM element's `class` attribute (`WebBrowserDomBridge.syncClassName`).
 2. **`BootstrapType.NONE` Default**:
    - When `component.getBootstrap().type == BootstrapType.NONE` (`BootstrapType.None`, the default), no semantic `btn-*` color variant class is added unless a semantic `BootstrapType` (`PRIMARY`, `DANGER`, `SUCCESS`, `WARNING`, `INFO`, `SECONDARY`, `LIGHT`, `DARK`, `LINK`) is explicitly set.
-3. **Inline `ComponentStyle` (`getStyle()`) & `!important` Support**:
-   - `ComponentStyle` properties map 1:1 to `WebDomElement.setStyle(property, value, important)` (and `WebBrowserDomBridge.syncStyle` / `element.style.setProperty(prop, value, "important")`), including standard CSS `accent-color` (`setAccentColor`).
+3. **Strongly-Typed `ComponentStyle` (`getStyle()`) & `WebCssStyleTranslator` (No String-Keyed Style APIs in `:common`)**:
+   - GenericUI does **not** expose string-keyed style APIs (`setStyleProperty(String, String)` is prohibited in `:common`), enabling non-web system backends to evaluate styles via typed fields and 128-bit `CssProperty` bitmasks (`importantMaskLo` / `importantMaskHi`) with zero string formatting or `Map<String, String>` allocation.
+   - On `:web`, `WebCssStyleTranslator` translates strongly-typed `ComponentStyle` and `ComponentBootstrap` properties directly into DOM CSS declarations via `WebDomElement.setStyle(property, value, important)` (and `WebBrowserDomBridge.syncStyle` / `element.style.setProperty(prop, value, "important")`), including standard CSS `accent-color` (`setAccentColor`) and explicit `top` / `right` / `bottom` / `left` positioning properties.
    - Because inline HTML `element.style` does not support pseudo-classes (`:hover`, `:focus`, `:active`), `ComponentStyle` has zero pseudo-state subblocks; hover/focus/active rules are authored in `.scss` stylesheets compiled by `GenericUiSassCompileTask`.
 4. **Custom Cursors (`CssCustomCursor`)**:
    - Setting a `CssCustomCursor` (PNG `ResourceID`, SVG `ResourceID`/markup, or `ImageBuffer` with `hotspotX`, `hotspotY`, and `fallback`) emits standard CSS `cursor: url("assets/drawable/<name>.png") <hotspotX> <hotspotY>, <fallback>` onto `WebDomElement.style["cursor"]`.
 
 ---
 
-## Dynamic `<link rel="stylesheet">` Management (`WebStyleSheetManager`) & `IApplication` Theming (`ThemeMode.AUTO`)
+## Dynamic `<link rel="stylesheet">` Management (`WebStyleSheetManager`), `ThemeMode.AUTO`, & Pre-Generated + Runtime `ThemeConfig` CSS
 
 - **`IApplication.addStyleSheet` / `removeStyleSheet` (`WebStyleSheetManager`)**:
   - `.scss` files in `src/commonMain/resources/**` are compiled at build time into `.css` files in the Web distribution (`GenericUiSassCompileTask`).
@@ -51,6 +52,12 @@ When `styles { globalStyleSheet = "styles/main.scss" }` is configured in `build.
 - **`IApplication` Theming (`ThemeMode.AUTO`, `DARK`, `LIGHT` — Default `AUTO`)**:
   - Defaults to **`ThemeMode.AUTO`**, querying `window.matchMedia("(prefers-color-scheme: dark)").matches` and listening for live OS color-scheme `change` events.
   - Synchronizes `document.documentElement.setAttribute("data-bs-theme", "light" | "dark")` so Bootstrap 5.3 light/dark color modes update immediately across the entire DOM.
+- **Cross-Platform `ThemeConfig` & `ThemeColorSet` (Build-Time `gui/genericui-theme.css` + Runtime `<style id="genericui-runtime-theme-css">`)**:
+  1. **Build-Time Pre-Generated `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`)**:
+     - During `packageGenericUiWebDistribution`, `GenericUiWebDistributionTask` generates `gui/genericui-theme.css` from the `genericui { theme { ... } }` configuration in `build.gradle.kts` (`primaryColor`, `secondaryColor`, `accentColor`, `successColor`, `dangerColor`, `warningColor`, `infoColor`, `lightColor`, `darkColor`, `backgroundColor`, `surfaceColor`, `textPrimaryColor`, `textSecondaryColor`, `borderColor`, plus `light { ... }` and `dark { ... }` mode overrides) and links it in `index.html` via `<link id="genericui-build-theme-css" rel="stylesheet" href="./gui/genericui-theme.css">`.
+     - Emits `:root, [data-bs-theme="light"]` and `[data-bs-theme="dark"]` CSS custom property blocks (`--bs-primary`, `--bs-primary-rgb`, `--bs-secondary`, `--bs-success`, `--bs-danger`, `--bs-warning`, `--bs-info`, `--bs-light`, `--bs-dark`, `--bs-body-bg`, `--bs-body-color`, `--bs-border-color`, `--genericui-accent`, `--genericui-surface-bg`, `--genericui-text-secondary`) together with `.btn-*`, `.btn-outline-*`, `.text-bg-*`, `.bg-*`, `.text-*`, and `.border-*` overrides so initial page paint has zero Flash of Unstyled Content (FOUC).
+  2. **Runtime `<style id="genericui-runtime-theme-css">` Injection (`WebStyleSheetManager.applyThemeConfig`)**:
+     - Calling `app.setThemeConfig(config)` or `app.setThemeColor(argb)` at runtime updates `BootstrapColorPalette.activeConfig` and invokes `WebStyleSheetManager.applyThemeConfig(config, resolvedMode)`, which dynamically injects or updates `<style id="genericui-runtime-theme-css">` in `document.head` (placed after `<link id="genericui-build-theme-css">`) and synchronizes `<meta name="theme-color">`.
 
 ---
 

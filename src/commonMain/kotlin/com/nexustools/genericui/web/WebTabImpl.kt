@@ -1,12 +1,14 @@
 package com.nexustools.genericui.web
 
+import com.nexustools.genericui.component.tabs.TabIconPlacement
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.res.Resources
 
 /**
  * Web implementation of [TabNativeImpl], rendering `<genericui:tab class="nav-item" role="presentation">`
  * (or `<genericui:closeabletab>` when [initialClosable] is `true`) containing a `<button class="nav-link" role="tab">`
- * with title, optional badge, optional `.btn-close` close button, or an embedded custom [WebDomElement].
+ * with optional icon, title, optional badge, optional `.btn-close` close button, or an embedded custom [WebDomElement].
  */
 class WebTabImpl(
     initialClosable: Boolean = false
@@ -19,6 +21,10 @@ class WebTabImpl(
         classList.add("nav-link")
         setAttribute("type", "button")
         setAttribute("role", "tab")
+    }
+    private val iconSpan: WebDomElement = WebDomElement("span").apply {
+        classList.add("tab-icon")
+        style["display"] = "none"
     }
     private val titleSpan: WebDomElement = WebDomElement("span").apply {
         classList.add("tab-title")
@@ -40,6 +46,14 @@ class WebTabImpl(
         private set
     var titleVal: String = ""
         private set
+    var iconVal: String? = null
+        private set
+    var iconSizePxVal: Int = 20
+        private set
+    var iconPlacementVal: TabIconPlacement = TabIconPlacement.START
+        private set
+    var tintImageToThemeVal: Boolean = true
+        private set
     var closableVal: Boolean = initialClosable
         private set
     private var customHeaderImpl: NativeImpl<*>? = null
@@ -49,6 +63,7 @@ class WebTabImpl(
 
     init {
         nativeWidget.setAttribute("role", "presentation")
+        buttonElement.appendChild(iconSpan)
         buttonElement.appendChild(titleSpan)
         buttonElement.appendChild(badgeSpan)
         buttonElement.appendChild(closeBtn)
@@ -79,10 +94,99 @@ class WebTabImpl(
     }
 
     override fun setIconNative(icon: String?) {
+        iconVal = icon
         if (icon != null) {
             buttonElement.setAttribute("data-icon", icon)
         } else {
             buttonElement.removeAttribute("data-icon")
+        }
+        syncIconElement()
+    }
+
+    override fun setIconSizePxNative(sizePx: Int) {
+        iconSizePxVal = sizePx.coerceAtLeast(1)
+        buttonElement.setAttribute("data-icon-size", iconSizePxVal.toString())
+        syncIconElement()
+    }
+
+    override fun setIconPlacementNative(placement: TabIconPlacement) {
+        iconPlacementVal = placement
+        buttonElement.setAttribute("data-icon-placement", placement.name.lowercase())
+        syncIconElement()
+    }
+
+    override fun setTintImageToThemeNative(tintToTheme: Boolean) {
+        tintImageToThemeVal = tintToTheme
+        buttonElement.setAttribute("data-tint-theme", tintToTheme.toString())
+        syncIconElement()
+    }
+
+    private fun syncIconElement() {
+        val rawIcon = iconVal?.trim().orEmpty()
+        if (rawIcon.isEmpty()) {
+            iconSpan.innerHTML = ""
+            iconSpan.textContent = ""
+            iconSpan.style["display"] = "none"
+            buttonElement.classList.remove("flex-column")
+            buttonElement.classList.remove("align-items-center")
+            return
+        }
+        iconSpan.style["display"] = "inline-flex"
+        iconSpan.style["width"] = "${iconSizePxVal}px"
+        iconSpan.style["height"] = "${iconSizePxVal}px"
+        if (iconPlacementVal == TabIconPlacement.TOP) {
+            buttonElement.classList.add("d-flex")
+            buttonElement.classList.add("flex-column")
+            buttonElement.classList.add("align-items-center")
+            iconSpan.style["margin-bottom"] = "4px"
+            iconSpan.style.remove("margin-right")
+        } else {
+            buttonElement.classList.remove("flex-column")
+            iconSpan.style["margin-right"] = "6px"
+            iconSpan.style.remove("margin-bottom")
+        }
+
+        val drawable = Resources.getDrawable(rawIcon)
+        val svgSource = drawable?.svgSource?.trim()
+        when {
+            rawIcon.startsWith("<svg", ignoreCase = true) -> {
+                iconSpan.innerHTML = rawIcon
+            }
+            !svgSource.isNullOrEmpty() && svgSource.startsWith("<svg", ignoreCase = true) -> {
+                iconSpan.innerHTML = svgSource
+            }
+            drawable != null && drawable.svgPathDataList.isNotEmpty() -> {
+                val vbW = drawable.viewBoxWidth.toInt().coerceAtLeast(1)
+                val vbH = drawable.viewBoxHeight.toInt().coerceAtLeast(1)
+                val paths = drawable.svgPathDataList.joinToString("") { d ->
+                    "<path fill=\"currentColor\" d=\"$d\"/>"
+                }
+                iconSpan.innerHTML = "<svg class=\"gui-tab-icon\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 $vbW $vbH\" width=\"$iconSizePxVal\" height=\"$iconSizePxVal\" fill=\"currentColor\">$paths</svg>"
+            }
+            drawable != null && !drawable.base64Data.isNullOrBlank() -> {
+                val mime = when (drawable.format.lowercase()) {
+                    "svg" -> "image/svg+xml"
+                    "jpg", "jpeg" -> "image/jpeg"
+                    "webp" -> "image/webp"
+                    "gif" -> "image/gif"
+                    else -> "image/png"
+                }
+                iconSpan.innerHTML = "<img class=\"gui-tab-icon\" src=\"data:$mime;base64,${drawable.base64Data}\" alt=\"\" style=\"width:${iconSizePxVal}px;height:${iconSizePxVal}px;object-fit:contain;\" />"
+            }
+            rawIcon.startsWith("res://", ignoreCase = true) ||
+                rawIcon.startsWith("data:image/", ignoreCase = true) ||
+                rawIcon.startsWith("http://", ignoreCase = true) ||
+                rawIcon.startsWith("https://", ignoreCase = true) ||
+                rawIcon.startsWith("memory://", ignoreCase = true) ||
+                rawIcon.startsWith("/") ||
+                rawIcon.endsWith(".svg", ignoreCase = true) ||
+                rawIcon.endsWith(".png", ignoreCase = true) -> {
+                iconSpan.innerHTML = "<img class=\"gui-tab-icon\" src=\"$rawIcon\" alt=\"\" style=\"width:${iconSizePxVal}px;height:${iconSizePxVal}px;object-fit:contain;\" />"
+            }
+            else -> {
+                iconSpan.innerHTML = ""
+                iconSpan.textContent = rawIcon
+            }
         }
     }
 

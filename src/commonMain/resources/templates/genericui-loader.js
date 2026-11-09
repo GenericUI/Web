@@ -1093,6 +1093,7 @@
             if (!catalog || typeof catalog !== "object") {
                 return;
             }
+            state.pendingResourcesCatalog = catalog;
             var store = global.__GENERICUI_PRELOADED_RESOURCES__;
             if (!store) {
                 return;
@@ -1104,13 +1105,19 @@
                     var resName = keys[i];
                     var item = drawables[resName];
                     if (item && typeof item === "object") {
-                        var rec = (item.path && store[item.path]) ||
+                        var itemPath = item.path ? String(item.path).replace(/^\.?\//, "") : "";
+                        var rec = (itemPath && (store[itemPath] || store["res/" + itemPath] || store["res://" + itemPath])) ||
                             store["drawable/" + resName] ||
                             store[resName];
                         if (rec) {
                             if (item.id != null) {
                                 store[String(item.id)] = rec;
                                 store["res://" + String(item.id)] = rec;
+                            }
+                            if (itemPath) {
+                                store[itemPath] = rec;
+                                store["res/" + itemPath] = rec;
+                                store["res://" + itemPath] = rec;
                             }
                             registerNameKeysInStore(store, "drawable", resName, rec);
                         }
@@ -1175,6 +1182,20 @@
             text: text
         };
 
+        if (mimeType && mimeType.indexOf("image/") === 0 && dataUrl && typeof global.Image === "function") {
+            try {
+                var eagerImg = new global.Image();
+                eagerImg.decoding = "async";
+                eagerImg.src = dataUrl;
+                record.imageElement = eagerImg;
+                if (eagerImg.complete && eagerImg.naturalWidth > 0) {
+                    record.naturalWidth = eagerImg.naturalWidth;
+                    record.naturalHeight = eagerImg.naturalHeight;
+                }
+            } catch (imgErr) {
+            }
+        }
+
         if (id) {
             store[id] = record;
             store["res://" + id] = record;
@@ -1186,11 +1207,44 @@
             store[path] = record;
             var cleanPath = path.replace(/^\.?\//, "").split("?")[0];
             store[cleanPath] = record;
-            if (cleanPath.indexOf("res/") === 0 || cleanPath.indexOf("gui/") === 0) {
-                var strippedPath = cleanPath.substring(4);
-                store[strippedPath] = record;
-                if (/\.scss$/i.test(strippedPath)) {
-                    store[strippedPath.replace(/\.scss$/i, ".css")] = record;
+            store["res://" + cleanPath] = record;
+            store["res/" + cleanPath] = record;
+            var lastSlashIdx = cleanPath.lastIndexOf("/");
+            var fileName = lastSlashIdx >= 0 ? cleanPath.substring(lastSlashIdx + 1) : cleanPath;
+            if (fileName) {
+                if (!store[fileName]) store[fileName] = record;
+                if (!store["res/" + fileName]) store["res/" + fileName] = record;
+                if (!store["assets/drawable/" + fileName]) store["assets/drawable/" + fileName] = record;
+                if (!store["res/assets/drawable/" + fileName]) store["res/assets/drawable/" + fileName] = record;
+                if (!store["res://assets/drawable/" + fileName]) store["res://assets/drawable/" + fileName] = record;
+                if (!store["drawable/" + fileName]) store["drawable/" + fileName] = record;
+                if (!store["res://drawable/" + fileName]) store["res://drawable/" + fileName] = record;
+            }
+            if (cleanPath.indexOf("res/") === 0) {
+                var strippedRes = cleanPath.substring(4);
+                if (strippedRes) {
+                    store[strippedRes] = record;
+                    store["res://" + strippedRes] = record;
+                }
+            } else if (cleanPath.indexOf("gui/") === 0) {
+                var strippedGui = cleanPath.substring(4);
+                if (strippedGui) {
+                    store[strippedGui] = record;
+                    store["res://" + strippedGui] = record;
+                }
+            }
+            var relForIdent = cleanPath
+                .replace(/^(?:res|gui)\//i, "")
+                .replace(/^assets\/drawable\//i, "")
+                .replace(/^(?:drawable|mipmap|icons|images)\//i, "");
+            if (relForIdent && relForIdent.indexOf("/") !== -1) {
+                var relNoExt = relForIdent.replace(/\.[^.\/]+$/, "");
+                var subdirIdent = relNoExt
+                    .replace(/[-.\s\/]+/g, "_")
+                    .replace(/[^A-Za-z0-9_]/g, "")
+                    .toLowerCase();
+                if (subdirIdent) {
+                    registerNameKeysInStore(store, type, subdirIdent, record);
                 }
             }
             if (/\.scss$/i.test(cleanPath)) {
@@ -1204,6 +1258,75 @@
         }
 
         return record;
+    }
+
+    function preloadRecordImageElement(record) {
+        if (!record || !record.mimeType || record.mimeType.indexOf("image/") !== 0 || !record.dataUrl || typeof global.Image !== "function") {
+            return Promise.resolve(record);
+        }
+        if (record.imageElement && record.imageElement.complete && record.imageElement.naturalWidth > 0) {
+            record.naturalWidth = record.imageElement.naturalWidth;
+            record.naturalHeight = record.imageElement.naturalHeight || 0;
+            return Promise.resolve(record);
+        }
+        var img = record.imageElement || new global.Image();
+        img.decoding = "async";
+        record.imageElement = img;
+        return new Promise(function (resolve) {
+            var settled = false;
+            var timer = typeof global.setTimeout === "function"
+                ? global.setTimeout(function () {
+                    if (!settled) {
+                        settled = true;
+                        record.naturalWidth = img.naturalWidth || 0;
+                        record.naturalHeight = img.naturalHeight || 0;
+                        resolve(record);
+                    }
+                }, 3000)
+                : null;
+            function finish() {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (timer !== null && typeof global.clearTimeout === "function") {
+                    global.clearTimeout(timer);
+                }
+                record.naturalWidth = img.naturalWidth || 0;
+                record.naturalHeight = img.naturalHeight || 0;
+                resolve(record);
+            }
+            img.onload = function () {
+                if (typeof img.decode === "function") {
+                    try {
+                        var p = img.decode();
+                        if (p && typeof p.then === "function") {
+                            p.then(finish, finish);
+                            return;
+                        }
+                    } catch (decErr) {
+                    }
+                }
+                finish();
+            };
+            img.onerror = finish;
+            if (!img.src) {
+                img.src = record.dataUrl;
+            }
+            if (img.complete && img.naturalWidth > 0) {
+                if (typeof img.decode === "function") {
+                    try {
+                        var dp = img.decode();
+                        if (dp && typeof dp.then === "function") {
+                            dp.then(finish, finish);
+                            return;
+                        }
+                    } catch (decErr2) {
+                    }
+                }
+                finish();
+            }
+        });
     }
 
     function getPreloadedResource(key) {
@@ -1221,6 +1344,12 @@
         }
         if (store["res://" + clean]) {
             return store["res://" + clean];
+        }
+        if (store["res/" + clean]) {
+            return store["res/" + clean];
+        }
+        if (store["gui/" + clean]) {
+            return store["gui/" + clean];
         }
         return null;
     }
@@ -1406,13 +1535,13 @@
         if (entry.bytes instanceof Uint8Array) {
             var recBytes = registerPreloadedResourceEntry(entry, entry.bytes);
             advanceInlineBytes(entry.bytes.byteLength);
-            return Promise.resolve(recBytes);
+            return preloadRecordImageElement(recBytes);
         }
         if (Array.isArray(entry.bytes)) {
             var arrBytes = new Uint8Array(entry.bytes);
             var recArr = registerPreloadedResourceEntry(entry, arrBytes);
             advanceInlineBytes(arrBytes.byteLength);
-            return Promise.resolve(recArr);
+            return preloadRecordImageElement(recArr);
         }
         if (typeof entry.dataUrl === "string" && entry.dataUrl.indexOf("data:") === 0) {
             var commaIdx = entry.dataUrl.indexOf(",");
@@ -1422,13 +1551,13 @@
                 : utf8ToBytes(decodeURIComponent(payload));
             var recDataUrl = registerPreloadedResourceEntry(entry, decoded);
             advanceInlineBytes(decoded.byteLength);
-            return Promise.resolve(recDataUrl);
+            return preloadRecordImageElement(recDataUrl);
         }
         if (typeof entry.base64 === "string" && entry.base64.length > 0) {
             var b64Bytes = base64ToBytes(entry.base64);
             var recB64 = registerPreloadedResourceEntry(entry, b64Bytes);
             advanceInlineBytes(b64Bytes.byteLength);
-            return Promise.resolve(recB64);
+            return preloadRecordImageElement(recB64);
         }
         if (typeof entry.text === "string") {
             var txtBytes = utf8ToBytes(entry.text);
@@ -1448,6 +1577,7 @@
             .then(function (downloadedBytes) {
                 return registerPreloadedResourceEntry(entry, downloadedBytes);
             })
+            .then(preloadRecordImageElement)
             .catch(function (err) {
                 if (config && config.requireResourceManifest === true) {
                     throw err;
@@ -1494,6 +1624,9 @@
                 workers.push(runWorker());
             }
             return Promise.all(workers).then(function () {
+                if (state.pendingResourcesCatalog) {
+                    applyGenericUiResourcesCatalog(state.pendingResourcesCatalog);
+                }
                 if (state.totalBytes > 0) {
                     var resDonePct = Math.min(99, Math.round((state.loadedBytes / state.totalBytes) * 100));
                     updateProgress(resDonePct, STATUS_LOADING_RESOURCES);

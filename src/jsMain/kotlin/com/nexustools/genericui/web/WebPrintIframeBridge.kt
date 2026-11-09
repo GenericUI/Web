@@ -15,18 +15,43 @@ actual object WebPrintIframeBridge {
         return """
             @page { size: ${wMm}mm ${hMm}mm; margin: ${marginMm}mm; }
             * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-            html, body { margin: 0; padding: 0; width: 100%; background: transparent; }
+            html {
+                min-width: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                background: transparent;
+            }
+            body {
+                min-width: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+                overflow-y: visible !important;
+                background: transparent !important;
+                background-image: none !important;
+            }
             .book-page {
-                width: 100%;
+                width: ${wMm}mm;
                 max-width: 100%;
+                min-height: ${hMm}mm;
                 margin: 0 auto 16px auto;
-                padding: 0;
+                padding: ${marginMm}mm;
                 background: #ffffff;
                 color: #000000;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.18);
                 position: relative;
                 page-break-after: always;
                 break-after: page;
-                overflow: hidden;
+                page-break-inside: avoid;
+                break-inside: avoid;
+                overflow: visible;
             }
             .book-page:last-child {
                 margin-bottom: 0;
@@ -34,19 +59,45 @@ actual object WebPrintIframeBridge {
                 break-after: auto;
             }
             .book-page img {
-                max-width: 100%;
-                width: 100%;
-                height: auto;
-                display: block;
+                max-width: 100% !important;
+                width: 100% !important;
+                height: auto !important;
+                display: block !important;
             }
             @media print {
-                html, body { background: #ffffff; }
+                html, body {
+                    min-width: 0 !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    min-height: 0 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    overflow: visible !important;
+                    background: #ffffff !important;
+                    background-image: none !important;
+                }
                 .book-page {
-                    width: ${wMm}mm;
-                    min-height: ${hMm}mm;
-                    margin: 0 auto;
-                    padding: ${marginMm}mm;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    height: auto !important;
+                    min-height: 0 !important;
+                    margin: 0 auto !important;
+                    padding: ${marginMm}mm !important;
                     box-shadow: none !important;
+                    overflow: visible !important;
+                    page-break-after: always !important;
+                    break-after: page !important;
+                    page-break-inside: avoid !important;
+                    break-inside: avoid !important;
+                }
+                .book-page:last-child {
+                    margin-bottom: 0 !important;
+                    page-break-after: auto !important;
+                    break-after: auto !important;
+                }
+                .book-page img {
+                    max-height: 100vh !important;
+                    object-fit: contain !important;
                 }
             }
         """.trimIndent()
@@ -57,15 +108,18 @@ actual object WebPrintIframeBridge {
         documentTitle: String,
         pageSize: PrintPageSize,
         orientation: PrintPageOrientation,
-        marginMm: Float
+        marginMm: Float,
+        styleSheetHrefs: List<String>?
     ) {
         val css = buildIframeStylesheet(pageSize, orientation, marginMm)
         iframeElement.setAttribute("data-iframe-css", css)
+        val effectiveHrefs = styleSheetHrefs ?: parseBookStyleSheetHrefs(iframeElement)
+        iframeElement.setAttribute("data-book-stylesheets", effectiveHrefs.joinToString("\n"))
         if (iframeElement.getAttribute("title").isNullOrBlank()) {
             iframeElement.setAttribute("title", documentTitle)
         }
         if (!WebBrowserDomBridge.isBrowserEnvironment) return
-        syncMountedBookIframe(iframeElement, documentTitle)
+        syncMountedBookIframe(iframeElement, documentTitle, effectiveHrefs)
     }
 
     actual fun syncMountedSubtreeIframes(rootElement: WebDomElement) {
@@ -80,9 +134,17 @@ actual object WebPrintIframeBridge {
         }
     }
 
+    private fun parseBookStyleSheetHrefs(iframeElement: WebDomElement): List<String> =
+        iframeElement.getAttribute("data-book-stylesheets")
+            ?.lines()
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+
     private fun syncMountedBookIframe(
         iframeElement: WebDomElement,
-        explicitTitle: String? = null
+        explicitTitle: String? = null,
+        styleSheetHrefs: List<String>? = null
     ) {
         if (!WebBrowserDomBridge.isBrowserEnvironment) return
         val iframePeer: dynamic = iframeElement.browserPeer ?: return
@@ -94,6 +156,7 @@ actual object WebPrintIframeBridge {
             val resolvedTitle = explicitTitle
                 ?: iframeElement.getAttribute("title")
                 ?: "Document"
+            val effectiveHrefs = styleSheetHrefs ?: parseBookStyleSheetHrefs(iframeElement)
             val iframeDoc: dynamic = iframePeer.contentDocument ?: iframePeer.contentWindow?.document
             if (iframeDoc != null && iframeDoc.body != null) {
                 iframeDoc.title = resolvedTitle
@@ -107,7 +170,7 @@ actual object WebPrintIframeBridge {
                         head.appendChild(styleEl)
                     }
                     styleEl.textContent = css
-                    syncHostStylesIntoIframeHead(iframeDoc, head)
+                    syncBookStylesIntoIframeHead(iframeDoc, head, effectiveHrefs)
                 }
                 val body: dynamic = iframeDoc.body
                 for (pageElement in iframeElement.children) {
@@ -135,19 +198,37 @@ actual object WebPrintIframeBridge {
         }
     }
 
-    private fun syncHostStylesIntoIframeHead(iframeDoc: dynamic, iframeHead: dynamic) {
-        if (iframeHead.__genericUiHostStylesCopied == true) return
-        val hostDoc: dynamic = js("document")
-        val hostHead: dynamic = hostDoc.head ?: return
-        val styleNodes: dynamic = hostHead.querySelectorAll("link[rel='stylesheet'], style")
-        val len = (styleNodes?.length as? Number)?.toInt() ?: 0
-        for (i in 0 until len) {
-            val node: dynamic = styleNodes[i] ?: continue
-            val clone: dynamic = node.cloneNode(true)
-            clone.setAttribute("data-genericui-cloned", "true")
-            iframeHead.insertBefore(clone, iframeDoc.getElementById("genericui-book-print-style"))
+    private fun syncBookStylesIntoIframeHead(
+        iframeDoc: dynamic,
+        iframeHead: dynamic,
+        styleSheetHrefs: List<String>
+    ) {
+        val desiredList = styleSheetHrefs.map { it.trim() }.filter { it.isNotEmpty() }
+        val existingNodes: dynamic = iframeHead.querySelectorAll("link[data-genericui-book-style='true']")
+        val existingLen = (existingNodes?.length as? Number)?.toInt() ?: 0
+        val existingByHref = linkedMapOf<String, dynamic>()
+        for (i in 0 until existingLen) {
+            val linkNode: dynamic = existingNodes[i] ?: continue
+            val href = (linkNode.getAttribute("href") as? String)?.trim().orEmpty()
+            if (href.isEmpty() || href !in desiredList || href in existingByHref) {
+                iframeHead.removeChild(linkNode)
+            } else {
+                existingByHref[href] = linkNode
+            }
         }
-        iframeHead.__genericUiHostStylesCopied = true
+        val printStyleEl: dynamic = iframeDoc.getElementById("genericui-book-print-style")
+        for (href in desiredList) {
+            if (href in existingByHref) continue
+            val linkEl: dynamic = iframeDoc.createElement("link")
+            linkEl.setAttribute("rel", "stylesheet")
+            linkEl.setAttribute("data-genericui-book-style", "true")
+            linkEl.setAttribute("href", href)
+            if (printStyleEl != null && printStyleEl.parentNode === iframeHead) {
+                iframeHead.insertBefore(linkEl, printStyleEl)
+            } else {
+                iframeHead.appendChild(linkEl)
+            }
+        }
     }
 
     actual fun removeChildFromIframe(

@@ -126,8 +126,8 @@ class WebHtmlTemplateEngineTest {
         assertTrue(impl.nativeWidget.enumClasses.contains("text-center"))
 
         val compStyle = com.nexustools.genericui.style.css.ComponentStyle().apply {
-            applyCssDeclaration("transform", "translate(-50%, -50%) scale(1.5, 1.5)")
-            applyCssDeclaration("left", "50%")
+            setTransform(com.nexustools.genericui.style.transition.CssTransform2D.parse("translate(-50%, -50%) scale(1.5, 1.5)"))
+            setLeft(com.nexustools.genericui.style.css.CssLength.percent(50f))
         }
         impl.applyComponentStyle(compStyle)
         assertEquals("translate(-50%, -50%) scale(1.5, 1.5)", impl.nativeWidget.style["transform"])

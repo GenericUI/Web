@@ -13,7 +13,8 @@ web/
 │   ├── WebLauncher.kt                  # Launcher invoked by generated jsMain/wasmJsMain entry points
 │   ├── WebNativeBootstrap.kt           # Provider registration + WebFragmentHistoryBridge setup
 │   ├── WebDomElement.kt                # DOM abstraction separating userClassList and enumClassList + !important styles
-│   ├── WebStyleSheetManager.kt         # Manages <link rel="stylesheet" href="..."> in document.head
+│   ├── WebCssStyleTranslator.kt        # Translates typed ComponentStyle & ComponentBootstrap to DOM CSS strings/classes
+│   ├── WebStyleSheetManager.kt         # Manages <link rel="stylesheet"> & runtime <style id="genericui-runtime-theme-css">
 │   ├── WebFragmentHistoryBridge.kt     # #hash + window.history.state integration for FragmentHostFragment
 │   ├── WebBrowserDomBridge.kt          # Expect/actual bridge to browser DOM, History, matchMedia, and Storage APIs
 │   ├── WebDomMountEngine.kt            # Reconciles virtual DOM nodes and mounts into #genericui-root
@@ -31,16 +32,17 @@ web/
 
 ---
 
-## Strict User CSS Class Isolation (`WebDomElement`) & Styling Architecture
+## Strict User CSS Class Isolation (`WebDomElement`), `WebCssStyleTranslator`, & Styling Architecture
 
 | Feature | Implementation in `:web` |
 |---------|--------------------------|
 | **User CSS Class Isolation** | `WebDomElement` stores user classes in `userClassList` and `ComponentBootstrap` enum classes in `enumClassList`. `addClass`, `removeClass`, `hasClass`, `getClasses()`, `getClass()`, and `className` inspect/modify **only** `userClassList`. `getEffectiveDomClassName()` combines `enumClassList + userClassList` solely when writing the DOM `class` attribute. |
-| **`ComponentBootstrap` (`getBootstrap()`)** | Maps `BootstrapType` (`BootstrapType.NONE` default), `BootstrapSize`, `BootstrapWidth`, `BootstrapHeight`, `SpacingScale`, `FlexDirection`, `JustifyContent`, `AlignItems`, `BorderRadiusStyle`, `ShadowElevation`, etc. into `WebDomElement.enumClassList`. |
-| **`ComponentStyle` (`getStyle()`) & `!important`** | Maps all standard W3C CSS properties (`backgroundColor`, `color`, `accentColor` / `accent-color`, `border*`, `margin*`, `padding*`, `width`/`height`, `flex*`, `gap`, `transform`, `transition`, `filter`, `backdropFilter`, etc.) to `WebDomElement.setStyle(property, value, important)`. |
+| **`ComponentBootstrap` (`getBootstrap()`)** | Maps `BootstrapType` (`BootstrapType.NONE` default), `BootstrapSize`, `BootstrapWidth`, `BootstrapHeight`, `SpacingScale`, `FlexDirection`, `FlexWrap`, `JustifyContent`, `AlignItems`, `BorderRadiusStyle`, `ShadowElevation`, etc. into `WebDomElement.enumClassList`. |
+| **Strongly-Typed `ComponentStyle` (`getStyle()`), `!important`, & `WebCssStyleTranslator`** | `:common` does **not** expose string-keyed style APIs (`setStyleProperty(String, String)` is prohibited) so non-web backends operate with zero string formatting or map allocation. On `:web`, `WebCssStyleTranslator` translates all strongly-typed `ComponentStyle` properties (`backgroundColor`, `color`, `accentColor` / `accent-color`, `border*`, `margin*`, `padding*`, `top` / `right` / `bottom` / `left`, `width` / `height`, `flex*`, `gap`, `transform`, `transition`, `filter`, `backdropFilter`, etc.) and 128-bit `CssProperty` `!important` bitmasks (`importantMaskLo` / `importantMaskHi`) to `WebDomElement.setStyle(property, value, important)`. |
 | **Custom Cursors (`CssCustomCursor`)** | Translates `CssCustomCursor` (`ResourceID`, SVG, or `ImageBuffer` + `hotspotX`, `hotspotY`, `fallback`) into `url("...") <hotspotX> <hotspotY>, <fallback>` on `WebDomElement.style["cursor"]`. |
 | **Stylesheets (`WebStyleSheetManager`)** | `IApplication.addStyleSheet` / `removeStyleSheet` (accepting `String` path, `ResourceID` `R.style.<name>`, or `PrecompiledStyleSheet`) normalizes `.scss`/`.sass` paths to `.css` and adds/removes `<link rel="stylesheet" href="...">` in `document.head`. |
 | **Theming (`ThemeMode.AUTO` Default)** | `IApplication.setTheme` / `getTheme` / `getResolvedTheme` defaults to `ThemeMode.AUTO`, listens to `window.matchMedia("(prefers-color-scheme: dark)")`, and sets `document.documentElement.setAttribute("data-bs-theme", "light" \| "dark")`. |
+| **Pre-Generated + Runtime `ThemeConfig` CSS** | Build-time `packageGenericUiWebDistribution` emits `gui/genericui-theme.css` linked via `<link id="genericui-build-theme-css" rel="stylesheet" href="./gui/genericui-theme.css">` in `index.html`. At runtime, `app.setThemeConfig(config)` and `app.setThemeColor(argb)` invoke `WebStyleSheetManager.applyThemeConfig(config, resolvedMode)` to inject/update `<style id="genericui-runtime-theme-css">` in `document.head` with `:root, [data-bs-theme="light"]` and `[data-bs-theme="dark"]` `--bs-*` CSS variables and Bootstrap `.btn-*`, `.btn-outline-*`, `.text-bg-*`, `.bg-*`, `.text-*`, and `.border-*` color rules. |
 
 ---
 
