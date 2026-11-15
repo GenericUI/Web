@@ -146,6 +146,7 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
             setAttribute("role", "button")
             classList.remove("active")
             setAttribute("aria-selected", "false")
+            style["cursor"] = "pointer"
         }
 
         val existingIdx = tabImpls.indexOfFirst { it === tabImpl }
@@ -172,13 +173,10 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         }
         webTab?.buttonElement?.addEventListener("click") {
             webTab.setSelectedNative(false)
-            if (webTab.hasClickListener()) {
-                webTab.dispatchClick()
-            } else {
-                val currentIdx = tabImpls.indexOf(tabImpl)
-                if (currentIdx >= 0) {
-                    onTabSelectedListener?.invoke(currentIdx)
-                }
+            webTab.dispatchClick()
+            val currentIdx = tabImpls.indexOf(tabImpl)
+            if (currentIdx >= 0) {
+                onTabSelectedListener?.invoke(currentIdx)
             }
         }
         syncPaneDomVisibility()
