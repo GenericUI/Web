@@ -13,12 +13,15 @@ open class WebBaseContainerNativeImpl(
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         val childDom = childImpl.nativeWidget as? WebDomElement ?: return
-        nativeWidget.insertChildAt(index, childDom)
+        nativeWidget.insertChildAt(index, childDom.resolveMountElement())
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
         val childDom = childImpl.nativeWidget as? WebDomElement ?: return
-        nativeWidget.removeChild(childDom)
+        val mountDom = childDom.resolveMountElement()
+        if (!nativeWidget.removeChild(mountDom)) {
+            nativeWidget.removeChild(childDom)
+        }
     }
 
     override fun clearChildrenNative() {

@@ -228,7 +228,7 @@ class WebLazyListImpl : WebBaseContainerNativeImpl("genericui:lazylist", "lazy-l
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         // Items managed by LazyList are mounted inside viewportHost via recomputeVisibleWindow()
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val dom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return
         if (dom === topSpacer || dom === viewportHost || dom === bottomSpacer) return
         if (dom !in viewportHost.children) {
             viewportHost.appendChild(dom)
@@ -236,7 +236,7 @@ class WebLazyListImpl : WebBaseContainerNativeImpl("genericui:lazylist", "lazy-l
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val dom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return
         if (dom === topSpacer || dom === viewportHost || dom === bottomSpacer) return
         val keysToRemove = mountedItems.entries.filter { it.value === childImpl }.map { it.key }
         for (k in keysToRemove) {
@@ -322,7 +322,7 @@ class WebLazyListImpl : WebBaseContainerNativeImpl("genericui:lazylist", "lazy-l
         val endIndex = startIndex + count - 1
         for (idx in startIndex..endIndex) {
             val old = mountedItems.remove(idx) ?: continue
-            (old.nativeWidget as? WebDomElement)?.let { viewportHost.removeChild(it) }
+            (old.nativeWidget as? WebDomElement)?.resolveMountElement()?.let { viewportHost.removeChild(it) }
         }
         recomputeVisibleWindow()
     }
@@ -408,7 +408,7 @@ class WebLazyListImpl : WebBaseContainerNativeImpl("genericui:lazylist", "lazy-l
         val outOfView = mountedItems.keys.filter { it !in visibleRange }
         for (idx in outOfView) {
             val impl = mountedItems.remove(idx) ?: continue
-            (impl.nativeWidget as? WebDomElement)?.let { viewportHost.removeChild(it) }
+            (impl.nativeWidget as? WebDomElement)?.resolveMountElement()?.let { viewportHost.removeChild(it) }
         }
 
         // Mount DOM nodes for visible items in ascending index order while preserving already-mounted nodes
@@ -419,7 +419,7 @@ class WebLazyListImpl : WebBaseContainerNativeImpl("genericui:lazylist", "lazy-l
             } else {
                 mountedItems.getOrPut(idx) { factory(idx) }
             }
-            val dom = impl.nativeWidget as? WebDomElement ?: continue
+            val dom = (impl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: continue
             dom.setAttribute("data-lazy-index", idx.toString())
             desiredDoms.add(dom)
         }

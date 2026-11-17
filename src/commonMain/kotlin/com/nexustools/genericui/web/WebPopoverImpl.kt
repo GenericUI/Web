@@ -26,13 +26,15 @@ class WebPopoverImpl : WebBaseContainerNativeImpl("genericui:popover", "popover 
     }
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val dom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return
         bodyElement.insertChildAt(index, dom)
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
-        bodyElement.removeChild(dom)
+        val rawDom = childImpl.nativeWidget as? WebDomElement ?: return
+        if (!bodyElement.removeChild(rawDom.resolveMountElement())) {
+            bodyElement.removeChild(rawDom)
+        }
     }
 
     override fun clearChildrenNative() {

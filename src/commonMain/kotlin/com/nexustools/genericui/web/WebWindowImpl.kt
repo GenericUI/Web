@@ -326,13 +326,16 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         val dom = childImpl.nativeWidget as? WebDomElement ?: return
-        contentSlot.insertChildAt(index, dom)
+        contentSlot.insertChildAt(index, dom.resolveMountElement())
         scheduleLayoutRefresh()
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
         val dom = childImpl.nativeWidget as? WebDomElement ?: return
-        contentSlot.removeChild(dom)
+        val mountDom = dom.resolveMountElement()
+        if (!contentSlot.removeChild(mountDom)) {
+            contentSlot.removeChild(dom)
+        }
     }
 
     override fun clearChildrenNative() {

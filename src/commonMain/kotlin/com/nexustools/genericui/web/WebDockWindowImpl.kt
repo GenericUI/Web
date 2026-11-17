@@ -88,13 +88,15 @@ class WebDockWindowImpl : WebBaseContainerNativeImpl("genericui:panelwindow", "d
     }
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val dom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return
         modalBody.insertChildAt(index, dom)
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
-        modalBody.removeChild(dom)
+        val rawDom = childImpl.nativeWidget as? WebDomElement ?: return
+        if (!modalBody.removeChild(rawDom.resolveMountElement())) {
+            modalBody.removeChild(rawDom)
+        }
     }
 
     override fun clearChildrenNative() {

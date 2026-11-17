@@ -98,7 +98,7 @@ class WebBookContainerImpl : WebBaseContainerNativeImpl("iframe", "book-containe
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
-        val childDom = childImpl.nativeWidget as? WebDomElement
+        val childDom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement()
         if (childDom != null) {
             WebPrintIframeBridge.removeChildFromIframe(nativeWidget, childDom)
         }

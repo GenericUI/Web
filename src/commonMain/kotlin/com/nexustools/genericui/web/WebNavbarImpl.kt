@@ -98,7 +98,7 @@ class WebNavbarImpl :
     override fun isBrandVisible(): Boolean = showBrandOverride ?: true
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val dom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return
         if (containerFluid.parent == nativeWidget) {
             navItemsSlot.insertChildAt(index, dom)
         } else {
@@ -107,11 +107,12 @@ class WebNavbarImpl :
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val rawDom = childImpl.nativeWidget as? WebDomElement ?: return
+        val mountDom = rawDom.resolveMountElement()
         if (containerFluid.parent == nativeWidget) {
-            navItemsSlot.removeChild(dom)
+            if (!navItemsSlot.removeChild(mountDom)) navItemsSlot.removeChild(rawDom)
         } else {
-            nativeWidget.removeChild(dom)
+            if (!nativeWidget.removeChild(mountDom)) nativeWidget.removeChild(rawDom)
         }
     }
 

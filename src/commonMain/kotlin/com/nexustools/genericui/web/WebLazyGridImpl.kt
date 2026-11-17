@@ -194,7 +194,7 @@ class WebLazyGridImpl : WebBaseContainerNativeImpl("genericui:lazygrid", "lazy-g
     }
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val dom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return
         if (dom === topSpacer || dom === gridViewport || dom === bottomSpacer) return
         if (dom !in gridViewport.children) {
             gridViewport.appendChild(dom)
@@ -202,7 +202,7 @@ class WebLazyGridImpl : WebBaseContainerNativeImpl("genericui:lazygrid", "lazy-g
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
-        val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val dom = (childImpl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return
         if (dom === topSpacer || dom === gridViewport || dom === bottomSpacer) return
         val keysToRemove = mountedItems.entries.filter { it.value === childImpl }.map { it.key }
         for (k in keysToRemove) {
@@ -338,7 +338,7 @@ class WebLazyGridImpl : WebBaseContainerNativeImpl("genericui:lazygrid", "lazy-g
         val outOfView = mountedItems.keys.filter { it !in visibleRange }
         for (idx in outOfView) {
             val impl = mountedItems.remove(idx) ?: continue
-            (impl.nativeWidget as? WebDomElement)?.let { gridViewport.removeChild(it) }
+            (impl.nativeWidget as? WebDomElement)?.resolveMountElement()?.let { gridViewport.removeChild(it) }
         }
 
         // Mount DOM nodes inside the visible window in index order
@@ -349,7 +349,7 @@ class WebLazyGridImpl : WebBaseContainerNativeImpl("genericui:lazygrid", "lazy-g
             } else {
                 mountedItems.getOrPut(idx) { factory(idx) }
             }
-            val dom = impl.nativeWidget as? WebDomElement ?: continue
+            val dom = (impl.nativeWidget as? WebDomElement)?.resolveMountElement() ?: continue
             dom.setAttribute("data-lazy-grid-index", idx.toString())
             desiredDoms.add(dom)
         }

@@ -266,23 +266,27 @@ class WebDialogWindowImpl :
 
     override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
         val dom = childImpl.nativeWidget as? WebDomElement ?: return
+        val mountDom = dom.resolveMountElement()
         if (dom.classList.contains("modal-footer") || dom.enumClasses.contains("modal-footer")) {
             dom.style["flex-shrink"] = "0"
             if ("py-2" !in dom.classList) dom.classList.add("py-2")
             if ("px-3" !in dom.classList) dom.classList.add("px-3")
+            modalBody.removeChild(mountDom)
             modalBody.removeChild(dom)
-            modalContent.appendChild(dom)
+            modalContent.appendChild(mountDom)
         } else {
             val targetIdx = if (index < 0) -1 else index.coerceAtMost(modalBody.children.size)
-            modalBody.insertChildAt(targetIdx, dom)
+            modalBody.insertChildAt(targetIdx, mountDom)
         }
     }
 
     override fun removeChildNative(childImpl: NativeImpl<*>) {
         val dom = childImpl.nativeWidget as? WebDomElement ?: return
-        if (dom.parent === modalContent) {
+        val mountDom = dom.resolveMountElement()
+        if (!modalContent.removeChild(mountDom)) {
             modalContent.removeChild(dom)
-        } else {
+        }
+        if (!modalBody.removeChild(mountDom)) {
             modalBody.removeChild(dom)
         }
     }

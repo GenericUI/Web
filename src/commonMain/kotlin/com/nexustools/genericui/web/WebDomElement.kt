@@ -11,6 +11,9 @@ package com.nexustools.genericui.web
 class WebDomElement(val tagName: String) {
     internal var browserPeer: Any? = null
     internal var ownerNativeImpl: com.nexustools.genericui.core.NativeImpl<*>? = null
+    internal var domMountWrapper: WebDomElement? = null
+
+    internal fun resolveMountElement(): WebDomElement = domMountWrapper ?: this
 
     /**
      * Returns the underlying browser DOM `HTMLElement` / `HTMLCanvasElement` peer when running

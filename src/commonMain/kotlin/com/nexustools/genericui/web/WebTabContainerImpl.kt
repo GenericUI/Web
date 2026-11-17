@@ -64,7 +64,7 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
             tabImpl?.setSelectedNative(i == selectedIndex && !isBtn)
         }
         tabPanes.forEachIndexed { i, (_, impl) ->
-            val dom = impl?.nativeWidget as? WebDomElement ?: return@forEachIndexed
+            val dom = (impl?.nativeWidget as? WebDomElement)?.resolveMountElement() ?: return@forEachIndexed
             val isBtn = buttonTabFlags.getOrElse(i) { false }
             val isActive = (i == selectedIndex) && !isBtn
             if (isActive) {
@@ -87,7 +87,7 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         val webTab = tabImpl as? WebTabImpl
         val title = webTab?.titleVal ?: ""
         val tabDom = tabImpl.nativeWidget as? WebDomElement
-        val contentDom = contentImpl.nativeWidget as? WebDomElement
+        val contentDom = (contentImpl.nativeWidget as? WebDomElement)?.resolveMountElement()
         contentDom?.classList?.add("tab-pane")
         contentDom?.classList?.add("fade")
 
@@ -201,7 +201,7 @@ class WebTabContainerImpl : WebBaseContainerNativeImpl("genericui:tabcontainer",
         (removedTab?.nativeWidget as? WebDomElement)?.let { navListElement.removeChild(it) }
         val (_, impl) = tabPanes.removeAt(index)
         buttonTabFlags.removeAt(index)
-        (impl?.nativeWidget as? WebDomElement)?.let { tabContentElement.removeChild(it) }
+        (impl?.nativeWidget as? WebDomElement)?.resolveMountElement()?.let { tabContentElement.removeChild(it) }
         if (tabPanes.isNotEmpty()) {
             if (selectedIndex >= tabPanes.size) {
                 selectedIndex = (tabPanes.size - 1).coerceAtLeast(0)

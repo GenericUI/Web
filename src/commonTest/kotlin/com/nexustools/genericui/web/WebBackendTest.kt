@@ -1,5 +1,8 @@
 package com.nexustools.genericui.web
 
+import com.nexustools.genericui.component.form.NumberField
+import com.nexustools.genericui.component.form.PasswordField
+import com.nexustools.genericui.component.form.TextField
 import com.nexustools.genericui.component.layout.AspectRatioContainer
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HybridColumnContainer
@@ -658,5 +661,66 @@ class WebBackendTest {
         assertFalse(primaryVideoStack.isFullscreen(), "Browser fullscreenchange(false) must clear element fullscreen state")
         assertFalse(window.isFullscreen(), "Browser fullscreenchange(false) must clear window fullscreen state")
         assertFalse(lastElementFullscreenState)
+    }
+
+    @Test
+    fun testWebTextFieldFloatingLabelWrapperLifecycleAndControls() {
+        val factory = WebNativeFactory()
+        assertEquals(1f, factory.displayDensityScale)
+        GenericUI.activeFactory = factory
+        factory.createApplication()
+
+        val window = Window("Form Label Test")
+        val rootContainer = Container()
+        window.setContent(rootContainer)
+        window.show()
+
+        val rootDom = (rootContainer.nativeImpl as WebBaseNativeImpl).nativeWidget
+        val serverField = TextField(value = "", placeholder = "", label = "Server Address")
+        val passField = PasswordField(placeholder = "Token", label = "Password")
+        val portField = NumberField(numericValue = 8080.0, label = "Port")
+        rootContainer.addChild(serverField)
+        rootContainer.addChild(passField)
+        rootContainer.addChild(portField)
+
+        val serverImpl = serverField.nativeImpl as WebTextInputImpl
+        val serverInputDom = serverImpl.nativeWidget
+        assertEquals("input", serverInputDom.tagName)
+        assertEquals("Server Address", serverImpl.getLabel())
+        assertEquals(" ", serverInputDom.attributes["placeholder"])
+        assertEquals("form-floating", rootDom.children[0].className)
+        val labelEl = rootDom.children[0].children.firstOrNull { it.tagName == "label" }
+        assertTrue(labelEl != null && labelEl.textContent == "Server Address")
+        assertEquals(serverInputDom.id, labelEl?.attributes?.get("for"))
+
+        // Updating custom id updates <label for="...">
+        serverImpl.setAttribute("id", "custom-server-input")
+        assertEquals("custom-server-input", serverInputDom.id)
+        assertEquals("custom-server-input", labelEl?.attributes?.get("for"))
+
+        // Hiding hides the floating wrapper as well
+        serverField.isVisible = false
+        assertEquals("none", rootDom.children[0].style["display"])
+        serverField.isVisible = true
+        assertFalse(rootDom.children[0].style.containsKey("display"))
+
+        // Clearing label unwraps back to bare <input> in-place at index 0
+        serverField.label = null
+        assertSame(serverInputDom, rootDom.children[0])
+        assertFalse(serverInputDom.attributes.containsKey("placeholder"))
+
+        // Re-setting label wraps cleanly again at index 0
+        serverField.label = "Host"
+        assertEquals("form-floating", rootDom.children[0].className)
+        assertEquals("Host", rootDom.children[0].children.first { it.tagName == "label" }.textContent)
+
+        val passWrapper = rootDom.children[1]
+        assertEquals("form-floating", passWrapper.className)
+        assertEquals("password", (passField.nativeImpl as WebBaseNativeImpl).nativeWidget.attributes["type"])
+        assertEquals("Password", passWrapper.children.first { it.tagName == "label" }.textContent)
+
+        val portWrapper = rootDom.children[2]
+        assertEquals("form-floating", portWrapper.className)
+        assertEquals("Port", portWrapper.children.first { it.tagName == "label" }.textContent)
     }
 }
