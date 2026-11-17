@@ -11,6 +11,7 @@ import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
 import com.nexustools.genericui.window.PipConfig
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
+import com.nexustools.genericui.window.WindowAspectRatioHelper
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
@@ -66,8 +67,14 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         WebBrowserDomBridge.getViewportWidth(1280),
         WebBrowserDomBridge.getViewportHeight(800)
     )
+    private var minWindowSize: Size? = null
     private var windowState: WindowState = WindowState.NORMAL
+    private var stateBeforeFullscreen: WindowState = WindowState.NORMAL
     private var fullscreenFlag: Boolean = false
+    private var alwaysOnTopFlag: Boolean = false
+    private var aspectRatioValue: Double? = null
+    private var baselineZIndex: String? = null
+    private var hasBeenBroughtToFront: Boolean = false
     private var fullscreenElementImpl: NativeImpl<*>? = null
     private var pipActive: Boolean = false
 
@@ -147,6 +154,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         nativeWidget.style["width"] = "100%"
         nativeWidget.style["height"] = "100%"
         nativeWidget.style["position"] = "relative"
+        nativeWidget.setAttribute("data-always-on-top", "false")
         nativeWidget.appendChild(contentSlot)
         modalCloseButton.addEventListener("click") {
             closeWindow()
@@ -156,13 +164,14 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         }
         WebBrowserDomBridge.registerWindowResize { w, h ->
             if (!isNonMainModalWindow) {
-                windowSize = Size(w, h)
-                nativeWidget.clientWidth = w
-                nativeWidget.clientHeight = h
-                if (w != lastNotifiedWidthPx || h != lastNotifiedHeightPx) {
-                    lastNotifiedWidthPx = w
-                    lastNotifiedHeightPx = h
-                    onResizeListener?.invoke(currentWindowConfiguration(w, h))
+                val resolved = clampSizeForState(Size(w, h))
+                windowSize = resolved
+                nativeWidget.clientWidth = resolved.width
+                nativeWidget.clientHeight = resolved.height
+                if (resolved.width != lastNotifiedWidthPx || resolved.height != lastNotifiedHeightPx) {
+                    lastNotifiedWidthPx = resolved.width
+                    lastNotifiedHeightPx = resolved.height
+                    onResizeListener?.invoke(currentWindowConfiguration(resolved.width, resolved.height))
                 }
             }
         }
@@ -269,6 +278,7 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
             nativeWidget.setStyle("backdrop-filter", "blur(6px)", true)
             nativeWidget.setStyle("pointer-events", "auto", true)
         }
+        syncAspectRatioStyle()
     }
 
     private fun modalWidgetAttach() {
@@ -288,25 +298,37 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         if (isNonMainModalWindow) return
         val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
         val vh = WebBrowserDomBridge.getViewportHeight(windowSize.height)
-        windowSize = Size(vw, vh)
-        nativeWidget.clientWidth = vw
-        nativeWidget.clientHeight = vh
-        if (vw != lastNotifiedWidthPx || vh != lastNotifiedHeightPx) {
-            lastNotifiedWidthPx = vw
-            lastNotifiedHeightPx = vh
-            onResizeListener?.invoke(currentWindowConfiguration(vw, vh))
+        val resolved = clampSizeForState(Size(vw, vh))
+        windowSize = resolved
+        nativeWidget.clientWidth = resolved.width
+        nativeWidget.clientHeight = resolved.height
+        if (resolved.width != lastNotifiedWidthPx || resolved.height != lastNotifiedHeightPx) {
+            lastNotifiedWidthPx = resolved.width
+            lastNotifiedHeightPx = resolved.height
+            onResizeListener?.invoke(currentWindowConfiguration(resolved.width, resolved.height))
         }
     }
 
     companion object {
+        private const val ALWAYS_ON_TOP_BASE_Z_INDEX: Int = 100000
         internal var activeWindow: WebWindowImpl? = null
         private var layoutRefreshPending: Boolean = false
         private var nextWindowZIndex: Int = 1000
         private var nextModalZIndex: Int = 2200
+        private var nextAlwaysOnTopZIndex: Int = ALWAYS_ON_TOP_BASE_Z_INDEX
 
         internal fun allocateNextZIndex(): Int {
             nextWindowZIndex += 1
             return nextWindowZIndex
+        }
+
+        internal fun allocateAlwaysOnTopZIndex(): Int {
+            nextAlwaysOnTopZIndex = maxOf(
+                nextAlwaysOnTopZIndex + 1,
+                allocateNextZIndex(),
+                ALWAYS_ON_TOP_BASE_Z_INDEX
+            )
+            return nextAlwaysOnTopZIndex
         }
 
         internal fun allocateNextModalZIndex(): Int {
@@ -356,9 +378,53 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
 
     override fun getTitle(): String = titleText
 
+    private fun isWindowedNormal(): Boolean =
+        !fullscreenFlag && windowState == WindowState.NORMAL
+
+    private fun syncAspectRatioStyle() {
+        val ratio = aspectRatioValue
+        if (ratio != null && isWindowedNormal()) {
+            nativeWidget.style["aspect-ratio"] = ratio.toString()
+            nativeWidget.setAttribute("data-aspect-ratio", ratio.toString())
+            if (isNonMainModalWindow) {
+                modalContent.style["aspect-ratio"] = ratio.toString()
+            }
+        } else {
+            nativeWidget.style.remove("aspect-ratio")
+            nativeWidget.removeAttribute("data-aspect-ratio")
+            modalContent.style.remove("aspect-ratio")
+        }
+    }
+
+    private fun clampSizeForState(size: Size): Size {
+        val ratio = aspectRatioValue
+        val min = minWindowSize
+        return if (ratio != null && isWindowedNormal()) {
+            WindowAspectRatioHelper.clampClientSize(size, ratio, min)
+        } else if (min != null) {
+            WindowAspectRatioHelper.clampClientSize(size, null, min)
+        } else {
+            size
+        }
+    }
+
+    private fun applyResolvedWindowSize(resolvedSize: Size, notifyResize: Boolean) {
+        windowSize = resolvedSize
+        nativeWidget.clientWidth = resolvedSize.width
+        nativeWidget.clientHeight = resolvedSize.height
+        if (notifyResize) {
+            val listener = onResizeListener
+            if (listener != null) {
+                lastNotifiedWidthPx = resolvedSize.width
+                lastNotifiedHeightPx = resolvedSize.height
+                listener.invoke(currentWindowConfiguration(resolvedSize.width, resolvedSize.height))
+            }
+        }
+    }
+
     override fun setWindowSize(size: Size) {
         val isModalWin = isNonMainModalWindow || nativeWidget.getAttribute("data-tool-modal") == "true"
-        val resolvedSize = if (WebBrowserDomBridge.isBrowserEnvironment && !isModalWin) {
+        val baseSize = if (WebBrowserDomBridge.isBrowserEnvironment && !isModalWin) {
             Size(
                 WebBrowserDomBridge.getViewportWidth(size.width),
                 WebBrowserDomBridge.getViewportHeight(size.height)
@@ -366,29 +432,112 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         } else {
             size
         }
-        windowSize = resolvedSize
-        nativeWidget.clientWidth = resolvedSize.width
-        nativeWidget.clientHeight = resolvedSize.height
+        val resolvedSize = clampSizeForState(baseSize)
+        applyResolvedWindowSize(resolvedSize, notifyResize = true)
         if (isModalWin) {
             ensureNonMainBootstrapModalStructure()
-        }
-        val listener = onResizeListener
-        if (listener != null) {
-            lastNotifiedWidthPx = resolvedSize.width
-            lastNotifiedHeightPx = resolvedSize.height
-            listener.invoke(currentWindowConfiguration(resolvedSize.width, resolvedSize.height))
         }
     }
 
     override fun getWindowSize(): Size = windowSize
 
+    override fun getMinWindowSize(): Size? = minWindowSize
+
+    override fun setMinWindowSize(minSize: Size?) {
+        minWindowSize = minSize
+        if (minSize != null) {
+            nativeWidget.setAttribute("data-min-width", minSize.width.toString())
+            nativeWidget.setAttribute("data-min-height", minSize.height.toString())
+            val adjusted = clampSizeForState(windowSize)
+            if (adjusted != windowSize) {
+                setWindowSize(adjusted)
+            }
+        } else {
+            nativeWidget.removeAttribute("data-min-width")
+            nativeWidget.removeAttribute("data-min-height")
+        }
+    }
+
+    override fun setAlwaysOnTop(alwaysOnTop: Boolean) {
+        val prev = alwaysOnTopFlag
+        alwaysOnTopFlag = alwaysOnTop
+        nativeWidget.setAttribute("data-always-on-top", alwaysOnTop.toString())
+        if (alwaysOnTop) {
+            if (!prev) {
+                val currentZ = nativeWidget.style["z-index"]
+                if (currentZ != null && (currentZ.toIntOrNull() ?: 0) < ALWAYS_ON_TOP_BASE_Z_INDEX) {
+                    baselineZIndex = currentZ
+                }
+            }
+            nativeWidget.style["z-index"] = allocateAlwaysOnTopZIndex().toString()
+        } else {
+            val restored = baselineZIndex
+            baselineZIndex = null
+            if (restored != null) {
+                nativeWidget.style["z-index"] = restored
+            } else if (hasBeenBroughtToFront) {
+                nativeWidget.style["z-index"] = allocateNextZIndex().toString()
+            } else {
+                nativeWidget.style.remove("z-index")
+            }
+        }
+    }
+
+    override fun isAlwaysOnTop(): Boolean = alwaysOnTopFlag
+
+    override fun setAspectRatio(aspectRatio: Double?) {
+        WindowAspectRatioHelper.validateAspectRatio(aspectRatio)
+        aspectRatioValue = aspectRatio
+        syncAspectRatioStyle()
+        if (aspectRatio != null && isWindowedNormal()) {
+            val clamped = clampSizeForState(windowSize)
+            if (clamped != windowSize) {
+                applyResolvedWindowSize(clamped, notifyResize = false)
+            }
+        }
+    }
+
+    override fun getAspectRatio(): Double? = aspectRatioValue
+
     override fun setWindowState(state: WindowState) {
+        if (state == WindowState.FULLSCREEN) {
+            if (!fullscreenFlag) {
+                setFullscreen(true)
+            }
+            return
+        }
         windowState = state
+        if (fullscreenFlag) {
+            stateBeforeFullscreen = state
+            setFullscreen(false)
+            return
+        }
+        syncAspectRatioStyle()
+        if (state == WindowState.NORMAL && aspectRatioValue != null) {
+            val clamped = clampSizeForState(windowSize)
+            if (clamped != windowSize) {
+                applyResolvedWindowSize(clamped, notifyResize = false)
+            }
+        }
     }
 
     override fun getWindowState(): WindowState = windowState
 
     override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
+        if (fullscreen && !fullscreenFlag) {
+            if (windowState != WindowState.FULLSCREEN) {
+                stateBeforeFullscreen = windowState
+            }
+            windowState = WindowState.FULLSCREEN
+        } else if (!fullscreen && fullscreenFlag) {
+            if (windowState == WindowState.FULLSCREEN) {
+                windowState = if (stateBeforeFullscreen == WindowState.FULLSCREEN) {
+                    WindowState.NORMAL
+                } else {
+                    stateBeforeFullscreen
+                }
+            }
+        }
         fullscreenFlag = fullscreen
         if (fullscreen) {
             nativeWidget.classList.add("fullscreen")
@@ -396,6 +545,13 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
             nativeWidget.classList.remove("fullscreen")
             (fullscreenElementImpl?.nativeWidget as? WebDomElement)?.classList?.remove("genericui-fullscreen-element")
             fullscreenElementImpl = null
+        }
+        syncAspectRatioStyle()
+        if (!fullscreen && windowState == WindowState.NORMAL && aspectRatioValue != null) {
+            val clamped = clampSizeForState(windowSize)
+            if (clamped != windowSize) {
+                applyResolvedWindowSize(clamped, notifyResize = false)
+            }
         }
         rebuildWebWindowChrome()
     }
@@ -633,12 +789,13 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
         val vw = WebBrowserDomBridge.getViewportWidth(windowSize.width)
         val vh = WebBrowserDomBridge.getViewportHeight(windowSize.height)
         if (!isNonMainModalWindow) {
-            windowSize = Size(vw, vh)
-            nativeWidget.clientWidth = vw
-            nativeWidget.clientHeight = vh
-            lastNotifiedWidthPx = vw
-            lastNotifiedHeightPx = vh
-            onResizeListener?.invoke(currentWindowConfiguration(vw, vh))
+            val resolved = clampSizeForState(Size(vw, vh))
+            windowSize = resolved
+            nativeWidget.clientWidth = resolved.width
+            nativeWidget.clientHeight = resolved.height
+            lastNotifiedWidthPx = resolved.width
+            lastNotifiedHeightPx = resolved.height
+            onResizeListener?.invoke(currentWindowConfiguration(resolved.width, resolved.height))
         } else if (alwaysOnTopOfOwnerFlag) {
             WebBrowserDomBridge.installModalFocusTrap(nativeWidget)
         }
@@ -675,22 +832,50 @@ class WebWindowImpl : WebBaseContainerNativeImpl("genericui:window", "genericui-
             val ownerId = webOwner.nativeWidget.id.ifEmpty { "main-window" }
             nativeWidget.setAttribute("data-owner-window", ownerId)
         }
-        if (alwaysOnTopOfOwner) {
-            nativeWidget.style["z-index"] = allocateNextZIndex().toString()
+        if (alwaysOnTopOfOwner || alwaysOnTopFlag) {
+            val ownerZ = webOwner?.nativeWidget?.style?.get("z-index")?.toIntOrNull() ?: 0
+            val toolZ = if (alwaysOnTopFlag || ownerZ >= ALWAYS_ON_TOP_BASE_Z_INDEX) {
+                maxOf(ownerZ + 1, allocateAlwaysOnTopZIndex())
+            } else {
+                allocateNextZIndex().also { z ->
+                    baselineZIndex = z.toString()
+                }
+            }
+            nativeWidget.style["z-index"] = toolZ.toString()
         }
     }
 
     override fun bringToFront() {
-        val myZ = allocateNextZIndex()
+        hasBeenBroughtToFront = true
+        val myZ = if (alwaysOnTopFlag) {
+            allocateAlwaysOnTopZIndex()
+        } else {
+            allocateNextZIndex().also { z ->
+                baselineZIndex = z.toString()
+            }
+        }
         nativeWidget.style["z-index"] = myZ.toString()
         for (toolWin in attachedToolWindows) {
-            if (toolWin.alwaysOnTopOfOwnerFlag) {
-                toolWin.nativeWidget.style["z-index"] = allocateNextZIndex().toString()
+            if (toolWin.alwaysOnTopOfOwnerFlag || toolWin.alwaysOnTopFlag) {
+                val toolZ = if (toolWin.alwaysOnTopFlag || alwaysOnTopFlag) {
+                    maxOf(myZ + 1, allocateAlwaysOnTopZIndex())
+                } else {
+                    allocateNextZIndex().also { z ->
+                        toolWin.baselineZIndex = z.toString()
+                    }
+                }
+                toolWin.nativeWidget.style["z-index"] = toolZ.toString()
             }
         }
         for (dockWin in attachedDockWindows) {
             if (dockWin.isAlwaysOnTopOfOwner) {
                 dockWin.bringToFront()
+                if (alwaysOnTopFlag) {
+                    val dockZ = dockWin.nativeWidget.style["z-index"]?.toIntOrNull() ?: 0
+                    if (dockZ <= myZ) {
+                        dockWin.nativeWidget.style["z-index"] = maxOf(myZ + 1, allocateAlwaysOnTopZIndex()).toString()
+                    }
+                }
             }
         }
     }

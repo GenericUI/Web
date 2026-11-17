@@ -1,4 +1,9 @@
+.DS_Store
+**/.DS_Store
 .gradle/
+**/.gradle/
 build/
+**/build/
 .kotlin/
+**/.kotlin/
 *.iml
